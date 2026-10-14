@@ -1,5 +1,9 @@
 #define MyAppName "AutoClick Pro"
-#define MyAppVersion "1.1.0"
+; Version comes from the built EXE, which takes it from autoclick_pro/__init__.py.
+#define MyAppVersion GetStringFileInfo(AddBackslash(SourcePath) + "dist\AutoClickPro\AutoClickPro.exe", "ProductVersion")
+#if MyAppVersion == ""
+  #error Build the EXE first: pyinstaller --noconfirm --clean AutoClickPro.spec
+#endif
 #define MyAppPublisher "AutoClick Pro"
 #define MyAppExeName "AutoClickPro.exe"
 

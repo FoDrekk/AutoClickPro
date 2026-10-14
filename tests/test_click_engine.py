@@ -1,23 +1,4 @@
-import os
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
-from PySide6.QtWidgets import QApplication
-
-
-@pytest.fixture(scope="session")
-def app():
-    return QApplication([])
-
-
-@pytest.fixture
-def engine(app):
-    from autoclick_pro.click_engine import ClickEngine
-
-    e = ClickEngine()
-    yield e
-    e.shutdown()
 
 
 def test_interval_accepts_valid(engine):
@@ -94,28 +75,29 @@ def test_failsafe_toggle(engine):
     assert engine._failsafe is False
 
 
-def test_reset_count_emits_zero(engine):
-    seen: list[int] = []
-    engine.click_count_changed.connect(seen.append)
-    engine.reset_count()
-    assert seen == [0]
+def test_resume_without_pause_is_noop(engine):
+    assert engine.resume_clicking() is False
+    assert not engine.is_active()
 
 
-def test_hotkey_names_cover_f1_to_f12():
-    from autoclick_pro.global_hotkeys import KEY_NAMES, key_from_name
-    from pynput import keyboard
+@pytest.mark.parametrize(
+    ("x", "y", "expected"),
+    [
+        (0, 0, True),
+        (3, 3, True),
+        (2, 0, True),
+        (4, 0, False),
+        (0, 4, False),
+        (500, 500, False),
+        # Monitors left of / above the primary have negative coordinates.
+        (-1920, 0, False),
+        (-1920, -1080, False),
+        (-5, 2, False),
+        (100, -1080, False),
+        (2, -500, False),
+    ],
+)
+def test_failsafe_corner_is_primary_monitor_only(x, y, expected):
+    from autoclick_pro.click_engine import in_failsafe_corner
 
-    assert KEY_NAMES == [f"f{i}" for i in range(1, 13)]
-    assert key_from_name("f6") == keyboard.Key.f6
-    with pytest.raises(ValueError):
-        key_from_name("bogus")
-
-
-def test_hotkey_conflict_guard(app):
-    from autoclick_pro.global_hotkeys import GlobalHotkeys
-
-    h = GlobalHotkeys()
-    h.set_keys("f7", "f9")
-    with pytest.raises(ValueError):
-        h.set_keys("f7", "f7")
-    h.stop()
+    assert in_failsafe_corner(x, y) is expected

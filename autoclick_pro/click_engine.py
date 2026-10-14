@@ -3,27 +3,26 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
-from logging.handlers import RotatingFileHandler
 
-from PySide6.QtCore import QThread, Signal
 from pynput.mouse import Button, Controller
+from PySide6.QtCore import QThread, Signal
 
 _logger = logging.getLogger("autoclick_pro")
-if not _logger.handlers:
-    _handler = RotatingFileHandler(
-        os.path.join(os.path.expanduser("~"), ".autoclick_pro.log"),
-        maxBytes=512_000,
-        backupCount=2,
-        encoding="utf-8",
-    )
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    _logger.addHandler(_handler)
-    _logger.setLevel(logging.INFO)
 
 _BUTTONS = {"left": Button.left, "right": Button.right, "middle": Button.middle}
+
+FAILSAFE_MARGIN = 3
+
+
+def in_failsafe_corner(x: int, y: int) -> bool:
+    """True when the cursor sits in the primary monitor's top-left corner.
+
+    Negative coordinates belong to monitors placed left of or above the
+    primary one, so they never count as the corner.
+    """
+    return 0 <= x <= FAILSAFE_MARGIN and 0 <= y <= FAILSAFE_MARGIN
 
 
 class ClickEngine(QThread):
@@ -32,11 +31,13 @@ class ClickEngine(QThread):
     click_count_changed = Signal(int)
     error_occurred = Signal(str)
     limit_reached = Signal(str)
+    failsafe_triggered = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._condition = threading.Condition()
         self._active = False
+        self._paused = False
         self._shutdown_requested = False
         self._interval_ms = 100
         self._position_mode = "cursor"
@@ -55,33 +56,55 @@ class ClickEngine(QThread):
         with self._condition:
             return self._active
 
+    def is_paused(self) -> bool:
+        with self._condition:
+            return self._paused
+
     def start_clicking(self) -> None:
+        """Begin a fresh run: zero the counter and arm the configured limits."""
         with self._condition:
             if self._shutdown_requested:
                 return
-            self._active = True
-            self._stop_at = (
-                self._click_count + self._max_clicks if self._max_clicks else None
+            self._click_count = 0
+            self._stop_at = self._max_clicks
+            self._stop_time = (
+                time.monotonic() + self._max_seconds if self._max_seconds else None
             )
-            if self._max_seconds:
-                if self._remaining is not None:
-                    self._stop_time = time.monotonic() + self._remaining
-                else:
-                    self._stop_time = time.monotonic() + self._max_seconds
-            else:
-                self._stop_time = None
             self._remaining = None
+            self._paused = False
+            self._active = True
+            should_start_thread = not self.isRunning()
+            self._condition.notify_all()
+
+        self.click_count_changed.emit(0)
+        if should_start_thread:
+            self.start()
+
+    def resume_clicking(self) -> bool:
+        """Continue a paused run, keeping its count and remaining limits."""
+        with self._condition:
+            if self._shutdown_requested or not self._paused:
+                return False
+            if self._remaining is not None:
+                self._stop_time = time.monotonic() + self._remaining
+            self._remaining = None
+            self._paused = False
+            self._active = True
             should_start_thread = not self.isRunning()
             self._condition.notify_all()
 
         if should_start_thread:
             self.start()
+        return True
 
     def pause_clicking(self) -> None:
         with self._condition:
-            if self._active and self._stop_time is not None:
+            if not self._active:
+                return
+            if self._stop_time is not None:
                 self._remaining = max(0.0, self._stop_time - time.monotonic())
             self._active = False
+            self._paused = True
             self._condition.notify_all()
 
     def emergency_stop(self) -> None:
@@ -89,6 +112,7 @@ class ClickEngine(QThread):
         # from this method guarantees that no later click can start first.
         with self._condition:
             self._active = False
+            self._paused = False
             self._remaining = None
             self._condition.notify_all()
 
@@ -148,100 +172,104 @@ class ClickEngine(QThread):
             self._failsafe = bool(enabled)
             self._condition.notify_all()
 
-    def reset_count(self) -> None:
-        with self._condition:
-            self._click_count = 0
-            self._stop_at = None
-            self._stop_time = None
-            self._remaining = None
-        self.click_count_changed.emit(0)
-
     def shutdown(self) -> None:
         with self._condition:
             self._active = False
+            self._paused = False
             self._shutdown_requested = True
             self._condition.notify_all()
         if self.isRunning():
             self.wait()
 
+    def _wait_until_due(self, last_due: float) -> bool:
+        """Sleep until the next click or the duration limit is due.
+
+        Caller holds the lock. Re-reads the interval after every wake-up so
+        UI changes apply to the very next click. Returns False when the run
+        was paused, stopped or shut down while waiting.
+        """
+        while self._active and not self._shutdown_requested:
+            due = last_due + self._interval_ms / 1000.0
+            if self._stop_time is not None:
+                due = min(due, self._stop_time)
+            remaining = due - time.monotonic()
+            if remaining <= 0:
+                return True
+            self._condition.wait(timeout=remaining)
+        return False
+
     def run(self) -> None:
         try:
             mouse = Controller()
-            while True:
-                error_message: str | None = None
-                click_count: int | None = None
-                limit_message: str | None = None
-
-                with self._condition:
-                    while not self._active and not self._shutdown_requested:
-                        self._condition.wait()
-                    if self._shutdown_requested:
-                        return
-
-                    try:
-                        if (
-                            self._stop_time is not None
-                            and time.monotonic() >= self._stop_time
-                        ):
-                            self._active = False
-                            limit_message = "Duration limit reached — clicking stopped."
-                        if self._active and self._failsafe:
-                            pos = mouse.position
-                            if pos[0] <= 3 and pos[1] <= 3:
-                                self._active = False
-                                error_message = "Failsafe corner reached — clicking stopped."
-                        if self._active and error_message is None and limit_message is None:
-                            if self._position_mode == "fixed":
-                                if self._fixed_position is None:
-                                    self._active = False
-                                    error_message = "Capture the mouse position before using fixed coordinates."
-                                else:
-                                    mouse.position = self._fixed_position
-                        if self._active and error_message is None and limit_message is None:
-                            presses = 2 if self._double else 1
-                            if self._stop_at is not None:
-                                presses = max(
-                                    1, min(presses, self._stop_at - self._click_count)
-                                )
-                            mouse.click(_BUTTONS[self._button], presses)
-                            self._click_count += presses
-                            click_count = self._click_count
-                            if (
-                                self._stop_at is not None
-                                and self._click_count >= self._stop_at
-                            ):
-                                self._active = False
-                                limit_message = (
-                                    f"Click target reached ({self._click_count}) — clicking stopped."
-                                )
-                    except Exception as exc:  # Surface OS/input errors in the UI.
-                        self._active = False
-                        error_message = f"Click failed: {exc}"
-                        _logger.exception("Click failed")
-
-                    interval_seconds = self._interval_ms / 1000.0
-                    if error_message is None:
-                        deadline = time.monotonic() + interval_seconds
-                        while self._active and not self._shutdown_requested:
-                            remaining = deadline - time.monotonic()
-                            if remaining <= 0:
-                                break
-                            notified = self._condition.wait(timeout=remaining)
-                            if notified and self._active and not self._shutdown_requested:
-                                # Apply interval/position changes from the UI before
-                                # the next click and avoid an unexpectedly short burst.
-                                deadline = time.monotonic() + self._interval_ms / 1000.0
-
-                if click_count is not None:
-                    self.click_count_changed.emit(click_count)
-                if error_message is not None:
-                    _logger.error("%s", error_message)
-                    self.error_occurred.emit(error_message)
-                if limit_message is not None:
-                    _logger.info("%s", limit_message)
-                    self.limit_reached.emit(limit_message)
         except Exception as exc:
             with self._condition:
                 self._active = False
+                self._paused = False
             _logger.exception("Mouse engine failed to start")
             self.error_occurred.emit(f"Mouse engine failed to start: {exc}")
+            return
+
+        # Scheduled time of the previous click; None means click immediately.
+        last_due: float | None = None
+        while True:
+            error_message: str | None = None
+            failsafe_message: str | None = None
+            limit_message: str | None = None
+            click_count: int | None = None
+
+            with self._condition:
+                while not self._active and not self._shutdown_requested:
+                    last_due = None
+                    self._condition.wait()
+                if self._shutdown_requested:
+                    return
+                if last_due is not None and not self._wait_until_due(last_due):
+                    continue
+
+                now = time.monotonic()
+                try:
+                    if self._stop_time is not None and now >= self._stop_time:
+                        self._active = False
+                        limit_message = "Duration limit reached — clicking stopped."
+                    elif self._failsafe and in_failsafe_corner(*map(int, mouse.position)):
+                        self._active = False
+                        failsafe_message = "Failsafe corner reached — clicking stopped."
+                    elif self._position_mode == "fixed" and self._fixed_position is None:
+                        self._active = False
+                        error_message = "Capture the mouse position before using fixed coordinates."
+                    else:
+                        if self._position_mode == "fixed":
+                            mouse.position = self._fixed_position
+                        presses = 2 if self._double else 1
+                        if self._stop_at is not None:
+                            presses = max(1, min(presses, self._stop_at - self._click_count))
+                        mouse.click(_BUTTONS[self._button], presses)
+                        self._click_count += presses
+                        click_count = self._click_count
+                        if self._stop_at is not None and self._click_count >= self._stop_at:
+                            self._active = False
+                            limit_message = (
+                                f"Click target reached ({self._click_count}) — clicking stopped."
+                            )
+                        # Fixed-rate schedule: anchor to the previous due time so
+                        # click cost does not add drift, but never burst to catch
+                        # up after a stall longer than one interval.
+                        interval = self._interval_ms / 1000.0
+                        scheduled = now if last_due is None else last_due + interval
+                        last_due = now if now - scheduled >= interval else scheduled
+                except Exception as exc:  # Surface OS/input errors in the UI.
+                    self._active = False
+                    error_message = f"Click failed: {exc}"
+                    _logger.exception("Click failed")
+
+            if click_count is not None:
+                self.click_count_changed.emit(click_count)
+            if error_message is not None:
+                _logger.error("%s", error_message)
+                self.error_occurred.emit(error_message)
+            if failsafe_message is not None:
+                _logger.info("%s", failsafe_message)
+                self.failsafe_triggered.emit(failsafe_message)
+            if limit_message is not None:
+                _logger.info("%s", limit_message)
+                self.limit_reached.emit(limit_message)

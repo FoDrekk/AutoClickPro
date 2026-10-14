@@ -6,17 +6,19 @@ AutoClick Pro is a desktop auto-clicker for Windows built with Python and PySide
 
 - Automatic clicks with left, right, or middle button, single or double.
 - Custom interval in milliseconds (default 100 ms, minimum 10 ms) with slider.
-- Remappable global hotkeys (F1–F12): start/pause and emergency stop.
+- Remappable global hotkeys (F1–F12): start/pause and emergency stop. Hotkeys are swallowed, so the focused app never sees them.
 - Click at the cursor or at fixed coordinates.
 - Auto-stop limits: max clicks and max duration, with live `count / target`.
-- Corner failsafe: slam the cursor into the top-left corner to halt.
+- Pause and resume keep the click count, the click target and the remaining duration.
+- Corner failsafe: slam the cursor into the top-left corner of the primary monitor to halt.
 - Emergency stop button in the window.
 - System tray icon with Start/Pause, Emergency Stop, and Quit.
 - Minimize to tray, always-on-top, sound feedback, dark card UI.
-- Settings persist between runs (interval, button, mode, limits, hotkeys).
+- Settings save automatically to `%APPDATA%\AutoClick Pro\settings.json` (settings from 1.x are migrated once).
+- Profiles store click settings (interval, button, position, limits); import/export them as JSON.
 - Single-instance guard: a second launch just warns.
 - Clicks run on a background thread so the window stays responsive.
-- Errors append to `~/.autoclick_pro.log` (rotated, ~512 KB x2).
+- Errors and crashes append to `~/.autoclick_pro.log` (rotated, ~512 KB x2).
 
 ## Requirements
 
@@ -36,12 +38,16 @@ pip install -r requirements.txt
 python main.py
 ```
 
-For tests and icon tooling:
+For development (tests, lint, type check, EXE build):
 
 ```powershell
 pip install -r requirements-dev.txt
-python -m pytest tests -q
+python -m pytest
+ruff check .
+mypy
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same checks on Windows, builds the EXE, smoke-tests it and uploads `dist\AutoClickPro\` as an artifact.
 
 If PowerShell blocks virtual environment activation, run once in the current PowerShell window:
 
@@ -52,19 +58,19 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## How to use
 
-1. Set the interval in milliseconds (slider covers 10–2000 ms). Under 50 ms asks for confirmation.
+1. Set the interval in milliseconds (slider covers 10–2000 ms, the box goes up to one hour).
 2. Pick the mouse button and single or double-click.
-3. Select **Follow cursor position** to click at the cursor on every click, or select **Fixed coordinates**.
-4. For fixed coordinates, point the mouse at the target and press **Capture current position**.
+3. Select **At cursor position** to click wherever the cursor is, or **At fixed coordinates**.
+4. For fixed coordinates, point the mouse at the target and press **Capture position**.
 5. Optional caps: max clicks and max duration stop automatically with a status note.
-6. Press **Start** or the start hotkey to begin. Press **Pause** or the hotkey again to pause.
+6. Press **Start** or the start hotkey to begin. Press **Pause** or the hotkey again to pause, and **Resume** to continue the same run.
 7. Press **Emergency Stop** or its hotkey to halt clicks immediately. After that, restarting requires a new start action.
 
 Global hotkeys are only active while AutoClick Pro is open and can be remapped in the Hotkeys card (F1–F12, must differ). Only one app instance runs at a time. Emergency stop waits for the click currently being sent to finish, then blocks further clicks.
 
 ## Build EXE (one-folder)
 
-Build on Windows using the same virtual environment:
+Build on Windows using the same virtual environment, with `requirements-dev.txt` installed:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -77,7 +83,7 @@ Output goes to:
 dist\AutoClickPro\AutoClickPro.exe
 ```
 
-Copy the whole `dist\AutoClickPro\` folder to distribute the app; the EXE needs the DLLs, plugins, and `assets\` next to it. The spec already bundles `assets\` (window/tray icon) and sets the EXE icon.
+Copy the whole `dist\AutoClickPro\` folder to distribute the app; the EXE needs the DLLs, plugins, and `assets\` next to it. The spec bundles `assets\`, sets the EXE icon, generates the EXE version resource from `autoclick_pro/__init__.py`, and leaves out unused Qt modules, plugins and translations (about 53 MB instead of 116 MB).
 
 ## Installer (optional)
 
@@ -87,7 +93,9 @@ Build the EXE first, then compile the Inno Setup script (needs Inno Setup 6):
 iscc installer.iss
 ```
 
-Output goes to `installer\AutoClickPro-Setup-1.1.0.exe`. Per-user install, no admin needed, optional desktop icon. Bump `APP_VERSION` in `autoclick_pro/__init__.py` and the version define in `installer.iss` together.
+Output goes to `installer\AutoClickPro-Setup-<version>.exe`. Per-user install, no admin needed, optional desktop icon.
+
+The version lives only in `__version__` in `autoclick_pro/__init__.py`. The spec writes it into the EXE, and `installer.iss` reads it back from the built EXE.
 
 ## Build EXE (one-file, optional)
 
@@ -106,7 +114,8 @@ Output goes to `dist\AutoClickPro.exe`. One-file may take longer to start becaus
 - **Hotkeys/clicks not reaching the target app:** Windows does not allow a lower-privilege process to control some higher-privilege apps. Run AutoClick Pro and the target app at the same privilege level. The About dialog shows whether this app runs as admin.
 - **App does not start after build:** build on Windows in a clean Python environment, then read the PyInstaller output in PowerShell. If the message mentions a missing Windows runtime DLL, install the matching Microsoft Visual C++ Redistributable.
 - **Fixed coordinates are off:** display scaling or monitor layout changes can shift coordinates; capture the current position again after changing display settings.
-- **Clicks stop at once with a failsafe note:** the cursor entered the top-left corner. Move it away and start again, or turn the failsafe off.
+- **Clicks stop at once with a failsafe note:** the cursor entered the top-left corner of the primary monitor. Move it away and start again, or turn the failsafe off.
+- **Settings reset with a warning:** the settings file was unreadable. The old copy is kept next to it as `settings.json.corrupt`.
 - **Already running warning:** an instance is active (maybe in the tray). Use the tray icon to show or quit it.
 
 ## Packaging notes

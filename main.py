@@ -3,12 +3,17 @@
 import os
 import sys
 import tempfile
+from typing import Any
 
 from PySide6.QtCore import QLockFile, QSettings
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from autoclick_pro import __version__ as APP_VERSION
-from autoclick_pro.main_window import MainWindow, set_app_theme
+from autoclick_pro.app_logging import install_excepthooks, logger, setup_logging
+from autoclick_pro.paths import log_path, settings_path
+from autoclick_pro.settings_store import SettingsStore
+from autoclick_pro.ui.main_window import MainWindow
+from autoclick_pro.ui.theme import set_app_theme
 
 
 def _enable_dpi_awareness() -> None:
@@ -25,24 +30,49 @@ def _enable_dpi_awareness() -> None:
         pass
 
 
-def _apply_saved_theme(app: QApplication) -> None:
-    theme = str(QSettings("AutoClick Pro", "AutoClick Pro").value("theme", "dark"))
-    set_app_theme(app, theme if theme in {"dark", "light", "system"} else "dark")
+def _legacy_qsettings() -> dict[str, Any] | None:
+    """Read settings saved by 1.x (Windows registry) for one-time migration."""
+    qs = QSettings("AutoClick Pro", "AutoClick Pro")
+    keys = qs.childKeys()
+    if not keys and not qs.childGroups():
+        return None
+    settings = {key: qs.value(key) for key in keys}
+    profiles: dict[str, dict[str, Any]] = {}
+    qs.beginGroup("profiles")
+    for name in qs.childGroups():
+        qs.beginGroup(name)
+        profiles[name] = {key: qs.value(key) for key in qs.childKeys()}
+        qs.endGroup()
+    qs.endGroup()
+    return {"settings": settings, "profiles": profiles}
+
+
+def _report_crash(summary: str) -> None:
+    if QApplication.instance() is None:
+        return
+    QMessageBox.critical(
+        None,
+        "AutoClick Pro error",
+        f"An unexpected error occurred:\n\n{summary}\n\nDetails were written to {log_path()}.",
+    )
 
 
 def main() -> int:
+    setup_logging(log_path())
+    install_excepthooks(_report_crash)
     _enable_dpi_awareness()
     app = QApplication(sys.argv)
+    app.setApplicationName("AutoClick Pro")
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName("AutoClick Pro")
     lock = QLockFile(os.path.join(tempfile.gettempdir(), "autoclick_pro.lock"))
     if not lock.tryLock(100):
         QMessageBox.warning(None, "AutoClick Pro", "AutoClick Pro is already running.")
         return 0
-    _apply_saved_theme(app)
-    app.setApplicationName("AutoClick Pro")
-    app.setApplicationVersion(APP_VERSION)
-    app.setOrganizationName("AutoClick Pro")
-    window = MainWindow()
-    window.setWindowTitle(f"AutoClick Pro {APP_VERSION}")
+    store = SettingsStore.load(settings_path(), legacy_loader=_legacy_qsettings)
+    set_app_theme(app, store.settings["theme"])
+    logger.info("AutoClick Pro %s starting", APP_VERSION)
+    window = MainWindow(store)
     window.show()
     return app.exec()
 

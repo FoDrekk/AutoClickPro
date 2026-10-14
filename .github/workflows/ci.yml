@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type check
+        run: mypy
+
+      - name: Test
+        run: python -m pytest
+
+      - name: Build EXE
+        run: pyinstaller --noconfirm --clean AutoClickPro.spec
+
+      - name: Smoke-test EXE
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\AutoClickPro\AutoClickPro.exe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { throw "AutoClickPro.exe exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoClickPro-windows
+          path: dist/AutoClickPro/

@@ -1,3 +1,7 @@
 -r requirements.txt
+pyinstaller>=6,<7
 pytest>=8
+pytest-qt>=4.4
+ruff>=0.6
+mypy>=1.11
 pillow>=10
