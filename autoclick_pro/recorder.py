@@ -58,6 +58,7 @@ def _strip_trailing_keys(events: list[RawEvent], vks: set[int]) -> list[RawEvent
 
 def _close_held(events: list[RawEvent]) -> list[RawEvent]:
     """Release keys and buttons still held when recording stopped."""
+    # Ordered set of held keys: dict keys in insertion order, values unused.
     keys: dict[tuple[int, bool], None] = {}
     buttons: dict[str, tuple[int, int]] = {}
     for e in events:
@@ -77,34 +78,35 @@ def _close_held(events: list[RawEvent]) -> list[RawEvent]:
     return events + closing
 
 
-def _merge_clicks(events: list[RawEvent]) -> list[RawEvent | Step]:
+def _merge_clicks(events: list[RawEvent]) -> list[RawEvent]:
     """Turn quick press/release pairs at one spot into click steps."""
-    out: list[RawEvent | Step] = []
-    i = 0
-    while i < len(events):
-        e = events[i]
-        if e.kind == "down":
-            j = i + 1
+    out: list[RawEvent] = []
+    index = 0
+    while index < len(events):
+        event = events[index]
+        if event.kind == "down":
+            next_index = index + 1
             while (
-                j < len(events)
-                and events[j].kind == "move"
-                and (abs(events[j].x - e.x) <= CLICK_SLOP_PX and abs(events[j].y - e.y) <= CLICK_SLOP_PX)
+                next_index < len(events)
+                and events[next_index].kind == "move"
+                and abs(events[next_index].x - event.x) <= CLICK_SLOP_PX
+                and abs(events[next_index].y - event.y) <= CLICK_SLOP_PX
             ):
-                j += 1
-            if j < len(events):
-                up = events[j]
+                next_index += 1
+            if next_index < len(events):
+                release = events[next_index]
                 if (
-                    up.kind == "up"
-                    and up.button == e.button
-                    and (up.t - e.t) * 1000 <= CLICK_MAX_MS
-                    and abs(up.x - e.x) <= CLICK_SLOP_PX
-                    and abs(up.y - e.y) <= CLICK_SLOP_PX
+                    release.kind == "up"
+                    and release.button == event.button
+                    and (release.t - event.t) * 1000 <= CLICK_MAX_MS
+                    and abs(release.x - event.x) <= CLICK_SLOP_PX
+                    and abs(release.y - event.y) <= CLICK_SLOP_PX
                 ):
-                    out.append(RawEvent(e.t, "click", e.x, e.y, button=e.button))
-                    i = j + 1
+                    out.append(RawEvent(event.t, "click", event.x, event.y, button=event.button))
+                    index = next_index + 1
                     continue
-        out.append(e)
-        i += 1
+        out.append(event)
+        index += 1
     return out
 
 
