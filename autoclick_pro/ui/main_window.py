@@ -135,6 +135,22 @@ class MainWindow(QMainWindow):
         self._apply_settings(store.settings)
         self._refresh_profiles()
 
+        self._connect_signals()
+
+        if store.load_warning:
+            self._set_status(f"Status: {store.load_warning}", "error")
+        if start_hotkeys:
+            self.hotkeys.start()
+            QTimer.singleShot(4000, self._auto_check_updates)
+
+    def _connect_signals(self) -> None:
+        """Wire every signal once, in the order __init__ used to do it inline.
+
+        Three groups, in the original order: the direct widget-to-slot
+        connections, the loop that wires settings changes to the autosave
+        timer, and the engine/hotkey/tray connections on a queued
+        connection so they land on the UI thread.
+        """
         self.interval_spin.valueChanged.connect(self.engine.set_interval_ms)
         self.interval_spin.valueChanged.connect(self._on_interval_spin)
         self.interval_spin.valueChanged.connect(self._update_rate_label)
@@ -200,12 +216,6 @@ class MainWindow(QMainWindow):
         self._tray.emergency_stop_requested.connect(self._emergency_stop)
         self._tray.quit_requested.connect(self._tray_quit)
 
-        if store.load_warning:
-            self._set_status(f"Status: {store.load_warning}", "error")
-        if start_hotkeys:
-            self.hotkeys.start()
-            QTimer.singleShot(4000, self._auto_check_updates)
-
     # ----------------------------------------------------------------- layout
 
     def _make_card(self, title: str) -> tuple[QGroupBox, QFormLayout]:
@@ -242,7 +252,15 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         layout.setContentsMargins(24, 22, 24, 16)
         layout.setSpacing(12)
+        layout.addLayout(self._build_header())
+        layout.addWidget(self._build_hero())
+        layout.addLayout(self._build_controls())
+        layout.addWidget(self._build_tabs(), 1)
+        layout.addLayout(self._build_footer())
+        self.setCentralWidget(root)
 
+    def _build_header(self) -> QHBoxLayout:
+        """Logo, title and version pill for the top of the window."""
         header = QHBoxLayout()
         header.setSpacing(14)
         self.logo_label = QLabel()
@@ -266,8 +284,10 @@ class MainWindow(QMainWindow):
         header.addLayout(title_box, 1)
         self.version_pill = QLabel(f"v{__version__}")
         header.addWidget(self.version_pill, 0, Qt.AlignmentFlag.AlignTop)
-        layout.addLayout(header)
+        return header
 
+    def _build_hero(self) -> QGroupBox:
+        """Status, counter and progress box under the header."""
         self.hero = QGroupBox()
         hero_layout = QVBoxLayout(self.hero)
         hero_layout.setContentsMargins(18, 18, 18, 18)
@@ -296,8 +316,10 @@ class MainWindow(QMainWindow):
         side_box.addWidget(self.progress_bar)
         hero_row.addLayout(side_box, 1)
         hero_layout.addLayout(hero_row)
-        layout.addWidget(self.hero)
+        return self.hero
 
+    def _build_controls(self) -> QHBoxLayout:
+        """Start and Emergency Stop buttons."""
         controls = QHBoxLayout()
         controls.setSpacing(12)
         self.toggle_button = QPushButton("Start")
@@ -310,8 +332,10 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self._emergency_stop)
         controls.addWidget(self.toggle_button, 1)
         controls.addWidget(self.stop_button, 1)
-        layout.addLayout(controls)
+        return controls
 
+    def _build_tabs(self) -> QTabWidget:
+        """Clicker, Sequence and Settings tabs."""
         self.tabs = QTabWidget()
         self.tabs.addTab(self._scroll_page(*self._build_clicker_cards()), "Clicker")
         self.sequence_editor = SequenceEditor(self._pick)
@@ -323,8 +347,10 @@ class MainWindow(QMainWindow):
         self.sequence_note = sequence_note
         self.tabs.addTab(self._scroll_page(self.sequence_editor, sequence_note), "Sequence")
         self.tabs.addTab(self._scroll_page(*self._build_settings_cards()), "Settings")
-        layout.addWidget(self.tabs, 1)
+        return self.tabs
 
+    def _build_footer(self) -> QHBoxLayout:
+        """Hotkey note and About button at the bottom of the window."""
         self.hotkey_note = QLabel()
         self.hotkey_note.setWordWrap(True)
         footer = QHBoxLayout()
@@ -332,10 +358,19 @@ class MainWindow(QMainWindow):
         self.about_button = self._ghost_button("About", self._show_about)
         self.about_button.setMaximumWidth(110)
         footer.addWidget(self.about_button)
-        layout.addLayout(footer)
-        self.setCentralWidget(root)
+        return footer
 
     def _build_clicker_cards(self) -> list[QWidget]:
+        return [
+            self._build_interval_card(),
+            self._build_click_card(),
+            self._build_position_card(),
+            self._build_trigger_card(),
+            self._build_limits_card(),
+        ]
+
+    def _build_interval_card(self) -> QGroupBox:
+        """Interval card."""
         interval_group, interval_form = self._make_card("Interval")
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(MIN_INTERVAL_MS, 3_600_000)
@@ -371,7 +406,10 @@ class MainWindow(QMainWindow):
         )
         interval_form.addRow("Random delay:", self.jitter_pct_spin)
         interval_form.addRow("Random position:", self.jitter_px_spin)
+        return interval_group
 
+    def _build_click_card(self) -> QGroupBox:
+        """Click card."""
         click_group, click_form = self._make_card("Click")
         self.button_combo = QComboBox()
         self.button_combo.addItem("Left button", "left")
@@ -380,7 +418,10 @@ class MainWindow(QMainWindow):
         self.double_check = QCheckBox("Double-click (2 presses per cycle)")
         click_form.addRow("Button:", self.button_combo)
         click_form.addRow("", self.double_check)
+        return click_group
 
+    def _build_position_card(self) -> QGroupBox:
+        """Click position card."""
         position_group, position_form = self._make_card("Click position")
         self.position_combo = QComboBox()
         self.position_combo.addItem("At cursor position", "cursor")
@@ -401,7 +442,10 @@ class MainWindow(QMainWindow):
         position_form.addRow("", self.capture_button)
         position_form.addRow("", self.background_check)
         position_form.addRow("", self.target_label)
+        return position_group
 
+    def _build_trigger_card(self) -> QGroupBox:
+        """Color trigger card."""
         trigger_group, trigger_form = self._make_card("Color trigger")
         self.trigger_combo = QComboBox()
         self.trigger_combo.addItem("Off", "off")
@@ -417,7 +461,10 @@ class MainWindow(QMainWindow):
         trigger_form.addRow("Pixel:", self.trigger_label)
         trigger_form.addRow("", self.trigger_pick_button)
         trigger_form.addRow("Tolerance:", self.trigger_tolerance_spin)
+        return trigger_group
 
+    def _build_limits_card(self) -> QGroupBox:
+        """Limits and safety card."""
         limits_group, limits_form = self._make_card("Limits and safety")
         self.max_clicks_spin = QSpinBox()
         self.max_clicks_spin.setRange(0, 1_000_000)
@@ -440,9 +487,18 @@ class MainWindow(QMainWindow):
         limits_form.addRow("Max clicks:", self.max_clicks_spin)
         limits_form.addRow("Max duration:", self.max_seconds_spin)
         limits_form.addRow("", self.failsafe_check)
-        return [interval_group, click_group, position_group, trigger_group, limits_group]
+        return limits_group
 
     def _build_settings_cards(self) -> list[QWidget]:
+        return [
+            self._build_window_card(),
+            self._build_hotkeys_card(),
+            self._build_profiles_card(),
+            self._build_updates_card(),
+        ]
+
+    def _build_window_card(self) -> QGroupBox:
+        """Window and feedback card."""
         window_group, window_form = self._make_card("Window and feedback")
         self.sound_check = QCheckBox("Sound on start/stop")
         self.sound_check.setChecked(True)
@@ -466,7 +522,10 @@ class MainWindow(QMainWindow):
         window_form.addRow("", self.overlay_check)
         window_form.addRow("Countdown:", self.countdown_spin)
         window_form.addRow("Theme:", self.theme_combo)
+        return window_group
 
+    def _build_hotkeys_card(self) -> QGroupBox:
+        """Hotkeys card."""
         hotkeys_group, hotkeys_form = self._make_card("Hotkeys")
         self.toggle_edit = HotkeyEdit()
         self.toggle_edit.set_hotkey(DEFAULT_TOGGLE)
@@ -478,7 +537,10 @@ class MainWindow(QMainWindow):
         hotkeys_form.addRow("Start/pause:", self.toggle_edit)
         hotkeys_form.addRow("Emergency stop:", self.stop_edit)
         hotkeys_form.addRow("", self.hotkey_hint)
+        return hotkeys_group
 
+    def _build_profiles_card(self) -> QGroupBox:
+        """Profiles card."""
         profiles_group, profiles_form = self._make_card("Profiles")
         self.profile_combo = QComboBox()
         self.profile_combo.setToolTip(
@@ -499,6 +561,10 @@ class MainWindow(QMainWindow):
             profile_buttons.addWidget(button, 1)
         profiles_form.addRow("Preset:", self.profile_combo)
         profiles_form.addRow("", profile_buttons)
+        return profiles_group
+
+    def _build_updates_card(self) -> QGroupBox:
+        """Updates card."""
         updates_group, updates_form = self._make_card("Updates")
         self.updates_check = QCheckBox("Check for updates once a week")
         self.updates_check.setToolTip(
@@ -520,7 +586,7 @@ class MainWindow(QMainWindow):
             self.updates_check.setEnabled(False)
         else:
             self.update_label.setText(f"Installed version: {__version__}")
-        return [window_group, hotkeys_group, profiles_group, updates_group]
+        return updates_group
 
     def _set_status(self, text: str, kind: str) -> None:
         self.status_label.setText(text)
