@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from autoclick_pro.global_hotkeys import DEFAULT_STOP, DEFAULT_TOGGLE, RESERVED, parse_hotkey
-from autoclick_pro.steps import Sequence, Trigger, sanitize_sequence, sanitize_trigger
+from autoclick_pro.steps import Sequence, Trigger, _bool, _coord, _int, sanitize_sequence, sanitize_trigger
 
 SCHEMA_VERSION = 1
 PROFILE_NAME_MAX = 64
@@ -66,33 +66,8 @@ SETTINGS_DEFAULTS: dict[str, Any] = {
 PROFILE_KEYS = tuple(PROFILE_DEFAULTS)
 
 
-def _as_bool(value: Any, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"true", "1", "yes"}:
-            return True
-        if lowered in {"false", "0", "no"}:
-            return False
-    if isinstance(value, int):
-        return bool(value)
-    return default
-
-
-def _as_int(value: Any, default: int, low: int, high: int) -> int:
-    if isinstance(value, bool):
-        return default
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    if not math.isfinite(number) or number != int(number):
-        return default
-    result = int(number)
-    return result if low <= result <= high else default
-
-
+# _bool, _int and _coord are shared with autoclick_pro.steps — this module
+# used to define its own copies of them under _as_* names.
 def _as_float(value: Any, default: float, low: float, high: float) -> float:
     if isinstance(value, bool):
         return default
@@ -103,13 +78,6 @@ def _as_float(value: Any, default: float, low: float, high: float) -> float:
     if not math.isfinite(number):
         return default
     return number if low <= number <= high else default
-
-
-def _as_coord(value: Any) -> int | None:
-    # Virtual-desktop coordinates; negative values are valid on multi-monitor setups.
-    sentinel = 1_000_000
-    result = _as_int(value, sentinel, -100_000, 100_000)
-    return None if result == sentinel else result
 
 
 def _as_hotkey(value: Any) -> str | None:
@@ -126,24 +94,24 @@ def _as_choice(value: Any, default: str, choices: set[str] | list[str]) -> str:
 def sanitize_profile(raw: Any) -> dict[str, Any]:
     data: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
     d = PROFILE_DEFAULTS
-    fixed_x = _as_coord(data.get("fixedX"))
-    fixed_y = _as_coord(data.get("fixedY"))
+    fixed_x = _coord(data.get("fixedX"))
+    fixed_y = _coord(data.get("fixedY"))
     # Coordinates are only meaningful as a pair.
     if fixed_x is None or fixed_y is None:
         fixed_x = fixed_y = None
     return {
-        "interval": _as_int(data.get("interval"), d["interval"], MIN_INTERVAL_MS, 3_600_000),
+        "interval": _int(data.get("interval"), d["interval"], MIN_INTERVAL_MS, 3_600_000),
         "mode": _as_choice(data.get("mode"), d["mode"], {"cursor", "fixed"}),
         "fixedX": fixed_x,
         "fixedY": fixed_y,
         "button": _as_choice(data.get("button"), d["button"], {"left", "right", "middle"}),
-        "double": _as_bool(data.get("double"), d["double"]),
-        "maxClicks": _as_int(data.get("maxClicks"), d["maxClicks"], 0, 1_000_000),
+        "double": _bool(data.get("double"), d["double"]),
+        "maxClicks": _int(data.get("maxClicks"), d["maxClicks"], 0, 1_000_000),
         "maxSeconds": _as_float(data.get("maxSeconds"), d["maxSeconds"], 0.0, 86_400.0),
-        "failsafe": _as_bool(data.get("failsafe"), d["failsafe"]),
-        "jitterPct": _as_int(data.get("jitterPct"), d["jitterPct"], 0, MAX_JITTER_PCT),
-        "jitterPx": _as_int(data.get("jitterPx"), d["jitterPx"], 0, MAX_JITTER_PX),
-        "background": _as_bool(data.get("background"), d["background"]),
+        "failsafe": _bool(data.get("failsafe"), d["failsafe"]),
+        "jitterPct": _int(data.get("jitterPct"), d["jitterPct"], 0, MAX_JITTER_PCT),
+        "jitterPx": _int(data.get("jitterPx"), d["jitterPx"], 0, MAX_JITTER_PX),
+        "background": _bool(data.get("background"), d["background"]),
         "trigger": sanitize_trigger(data.get("trigger")).to_json(),
         "sequence": sanitize_sequence(data.get("sequence")).to_json(),
     }
@@ -158,18 +126,18 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
         stop = next(key for key in (d["stopKey"], "f9", "f7") if key != toggle)
     return {
         **sanitize_profile(data),
-        "sound": _as_bool(data.get("sound"), d["sound"]),
-        "alwaysOnTop": _as_bool(data.get("alwaysOnTop"), d["alwaysOnTop"]),
-        "minimizeToTray": _as_bool(data.get("minimizeToTray"), d["minimizeToTray"]),
+        "sound": _bool(data.get("sound"), d["sound"]),
+        "alwaysOnTop": _bool(data.get("alwaysOnTop"), d["alwaysOnTop"]),
+        "minimizeToTray": _bool(data.get("minimizeToTray"), d["minimizeToTray"]),
         "theme": _as_choice(data.get("theme"), d["theme"], {"dark", "light", "system"}),
         "toggleKey": toggle,
         "stopKey": stop,
-        "overlay": _as_bool(data.get("overlay"), d["overlay"]),
-        "countdown": _as_int(data.get("countdown"), d["countdown"], 0, 10),
-        "recordMoves": _as_bool(data.get("recordMoves"), d["recordMoves"]),
+        "overlay": _bool(data.get("overlay"), d["overlay"]),
+        "countdown": _int(data.get("countdown"), d["countdown"], 0, 10),
+        "recordMoves": _bool(data.get("recordMoves"), d["recordMoves"]),
         "runMode": _as_choice(data.get("runMode"), d["runMode"], {"simple", "sequence"}),
-        "checkUpdates": _as_bool(data.get("checkUpdates"), d["checkUpdates"]),
-        "lastUpdateCheck": _as_int(data.get("lastUpdateCheck"), d["lastUpdateCheck"], 0, 2**40),
+        "checkUpdates": _bool(data.get("checkUpdates"), d["checkUpdates"]),
+        "lastUpdateCheck": _int(data.get("lastUpdateCheck"), d["lastUpdateCheck"], 0, 2**40),
     }
 
 
