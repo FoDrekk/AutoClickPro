@@ -1,0 +1,73 @@
+name: Release
+
+# Runs when a version tag such as v2.2.0 is pushed. Builds, optionally signs,
+# and attaches the portable zip, installer, checksums and winget manifests
+# to a GitHub release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      # Optional signing secrets. Without them the release is built unsigned.
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+      AUTOCLICK_SIGN_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Tag must match the package version
+        shell: pwsh
+        run: |
+          $version = python -c "import autoclick_pro; print(autoclick_pro.__version__)"
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match __version__ $version"
+          }
+
+      - name: Prepare signing certificate
+        if: env.SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          "AUTOCLICK_SIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SIGN_ARG=--sign" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build release
+        shell: pwsh
+        run: python tools/make_release.py --repo "${{ github.repository }}" $env:SIGN_ARG
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem release -File | ForEach-Object FullName
+          $manifests = Join-Path "release" ("winget\" + "${{ github.ref_name }}".TrimStart("v"))
+          $zip = Join-Path $env:RUNNER_TEMP "winget-manifests.zip"
+          if (Test-Path $manifests) { Compress-Archive -Path "$manifests\*" -DestinationPath $zip; $files += $zip }
+          gh release create "${{ github.ref_name }}" @files --title "AutoClick Pro ${{ github.ref_name }}" --generate-notes
+
+      - name: Remove signing certificate
+        if: always()
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          if (Test-Path $pfx) { Remove-Item $pfx -Force }

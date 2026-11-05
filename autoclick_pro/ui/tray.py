@@ -44,8 +44,8 @@ class TrayIcon(QObject):
         self._show_action.setText("Hide" if shown else "Show")
 
     def set_hotkey_labels(self, toggle: str, stop: str) -> None:
-        self._toggle_action.setText(f"Start/Pause ({toggle.upper()})")
-        self._stop_action.setText(f"Emergency Stop ({stop.upper()})")
+        self._toggle_action.setText(f"Start/Pause ({toggle})")
+        self._stop_action.setText(f"Emergency Stop ({stop})")
 
     def notify(self, text: str, level: str = "info", msecs: int = 2000) -> None:
         if self._tray.isVisible():

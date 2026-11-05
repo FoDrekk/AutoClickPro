@@ -8,7 +8,6 @@ version lives in one place. installer.iss reads it back from the built EXE.
 import os
 import re
 
-from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.win32.versioninfo import (
     FixedFileInfo,
     StringFileInfo,
@@ -48,8 +47,6 @@ version_info = VSVersionInfo(
         VarFileInfo([VarStruct("Translation", [1033, 1200])]),
     ],
 )
-
-pynput_datas, pynput_binaries, pynput_hiddenimports = collect_all("pynput")
 
 # The app only uses QtCore/QtGui/QtWidgets. Everything below is pulled in by
 # the generic PySide6 hooks and roughly doubles the folder size.
@@ -109,9 +106,9 @@ def _keep(entry):
 a = Analysis(
     ["main.py"],
     pathex=[SPECPATH],
-    binaries=pynput_binaries,
-    datas=pynput_datas + [(os.path.join(SPECPATH, "assets"), "assets")],
-    hiddenimports=pynput_hiddenimports,
+    binaries=[],
+    datas=[(os.path.join(SPECPATH, "assets"), "assets")],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

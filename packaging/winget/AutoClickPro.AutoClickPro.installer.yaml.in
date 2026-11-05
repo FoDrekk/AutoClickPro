@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: AutoClickPro.AutoClickPro
+PackageVersion: {{version}}
+InstallerLocale: en-US
+MinimumOSVersion: 10.0.0.0
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: {{release_date}}
+Installers:
+  - Architecture: x64
+    InstallerUrl: {{installer_url}}
+    InstallerSha256: {{installer_sha256}}
+    ProductCode: '{7C4E9A1B-3F2D-4E6A-8C1D-5B0A9F2E4D6C}_is1'
+ManifestType: installer
+ManifestVersion: 1.6.0

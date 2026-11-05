@@ -7,8 +7,9 @@ def test_interval_accepts_valid(engine):
 
 
 def test_interval_rejects_small_and_bad(engine):
-    assert engine.set_interval_ms(9) is False
+    assert engine.set_interval_ms(1) is True
     assert engine.set_interval_ms(0) is False
+    assert engine.set_interval_ms(-5) is False
     assert engine.set_interval_ms("bogus") is False
     assert engine.set_interval_ms(None) is False
 
@@ -80,24 +81,48 @@ def test_resume_without_pause_is_noop(engine):
     assert not engine.is_active()
 
 
+def test_jitter_validation(engine):
+    engine.set_jitter(50, 50)
+    assert (engine._jitter_pct, engine._jitter_px) == (50, 50)
+    with pytest.raises(ValueError):
+        engine.set_jitter(51, 0)
+    with pytest.raises(ValueError):
+        engine.set_jitter(0, -1)
+
+
+def test_jitter_offset_stays_in_radius():
+    import random
+
+    from autoclick_pro.click_engine import jitter_offset
+
+    rng = random.Random(7)
+    points = [jitter_offset(rng, 10) for _ in range(500)]
+    assert all(dx * dx + dy * dy <= 10**2 for dx, dy in points)
+    assert len(set(points)) > 50
+    assert jitter_offset(rng, 0) == (0, 0)
+
+
 @pytest.mark.parametrize(
-    ("x", "y", "expected"),
+    ("x", "y", "corners", "expected"),
     [
-        (0, 0, True),
-        (3, 3, True),
-        (2, 0, True),
-        (4, 0, False),
-        (0, 4, False),
-        (500, 500, False),
-        # Monitors left of / above the primary have negative coordinates.
-        (-1920, 0, False),
-        (-1920, -1080, False),
-        (-5, 2, False),
-        (100, -1080, False),
-        (2, -500, False),
+        (0, 0, [(0, 0)], True),
+        (3, 3, [(0, 0)], True),
+        (4, 0, [(0, 0)], False),
+        (0, 4, [(0, 0)], False),
+        (500, 500, [(0, 0)], False),
+        # Primary-only corner: other monitors never trigger it.
+        (-1920, 0, [(0, 0)], False),
+        (-5, 2, [(0, 0)], False),
+        # Monitor left of the primary owns the desktop corner instead.
+        (-1920, 0, [(-1920, 0)], True),
+        (-1917, 3, [(-1920, 0)], True),
+        (0, 0, [(-1920, 0)], False),
+        # Two independent corners (staggered monitors).
+        (-1920, 200, [(-1920, 200), (0, 0)], True),
+        (1, 1, [(-1920, 200), (0, 0)], True),
     ],
 )
-def test_failsafe_corner_is_primary_monitor_only(x, y, expected):
+def test_failsafe_corner(x, y, corners, expected):
     from autoclick_pro.click_engine import in_failsafe_corner
 
-    assert in_failsafe_corner(x, y) is expected
+    assert in_failsafe_corner(x, y, corners) is expected

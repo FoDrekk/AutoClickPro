@@ -5,5 +5,10 @@ venv/
 build/
 dist/
 installer/
+release/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.spec.bak
+*.pfx
+*.pem

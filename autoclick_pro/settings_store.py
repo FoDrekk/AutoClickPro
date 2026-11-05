@@ -18,10 +18,14 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from autoclick_pro.global_hotkeys import KEY_NAMES
+from autoclick_pro.global_hotkeys import DEFAULT_STOP, DEFAULT_TOGGLE, RESERVED, parse_hotkey
+from autoclick_pro.steps import Sequence, Trigger, sanitize_sequence, sanitize_trigger
 
 SCHEMA_VERSION = 1
 PROFILE_NAME_MAX = 64
+MIN_INTERVAL_MS = 1
+MAX_JITTER_PCT = 50
+MAX_JITTER_PX = 50
 
 _logger = logging.getLogger("autoclick_pro")
 
@@ -36,6 +40,11 @@ PROFILE_DEFAULTS: dict[str, Any] = {
     "maxClicks": 0,
     "maxSeconds": 0.0,
     "failsafe": False,
+    "jitterPct": 0,
+    "jitterPx": 0,
+    "background": False,
+    "trigger": Trigger().to_json(),
+    "sequence": Sequence().to_json(),
 }
 
 SETTINGS_DEFAULTS: dict[str, Any] = {
@@ -44,8 +53,14 @@ SETTINGS_DEFAULTS: dict[str, Any] = {
     "alwaysOnTop": False,
     "minimizeToTray": False,
     "theme": "dark",
-    "toggleKey": "f6",
-    "stopKey": "f12",
+    "toggleKey": DEFAULT_TOGGLE,
+    "stopKey": DEFAULT_STOP,
+    "overlay": True,
+    "countdown": 0,
+    "recordMoves": False,
+    "runMode": "simple",
+    "checkUpdates": False,
+    "lastUpdateCheck": 0,
 }
 
 PROFILE_KEYS = tuple(PROFILE_DEFAULTS)
@@ -97,6 +112,13 @@ def _as_coord(value: Any) -> int | None:
     return None if result == sentinel else result
 
 
+def _as_hotkey(value: Any) -> str | None:
+    try:
+        return str(parse_hotkey(value))
+    except ValueError:
+        return None
+
+
 def _as_choice(value: Any, default: str, choices: set[str] | list[str]) -> str:
     return value if isinstance(value, str) and value in choices else default
 
@@ -110,7 +132,7 @@ def sanitize_profile(raw: Any) -> dict[str, Any]:
     if fixed_x is None or fixed_y is None:
         fixed_x = fixed_y = None
     return {
-        "interval": _as_int(data.get("interval"), d["interval"], 10, 3_600_000),
+        "interval": _as_int(data.get("interval"), d["interval"], MIN_INTERVAL_MS, 3_600_000),
         "mode": _as_choice(data.get("mode"), d["mode"], {"cursor", "fixed"}),
         "fixedX": fixed_x,
         "fixedY": fixed_y,
@@ -119,16 +141,21 @@ def sanitize_profile(raw: Any) -> dict[str, Any]:
         "maxClicks": _as_int(data.get("maxClicks"), d["maxClicks"], 0, 1_000_000),
         "maxSeconds": _as_float(data.get("maxSeconds"), d["maxSeconds"], 0.0, 86_400.0),
         "failsafe": _as_bool(data.get("failsafe"), d["failsafe"]),
+        "jitterPct": _as_int(data.get("jitterPct"), d["jitterPct"], 0, MAX_JITTER_PCT),
+        "jitterPx": _as_int(data.get("jitterPx"), d["jitterPx"], 0, MAX_JITTER_PX),
+        "background": _as_bool(data.get("background"), d["background"]),
+        "trigger": sanitize_trigger(data.get("trigger")).to_json(),
+        "sequence": sanitize_sequence(data.get("sequence")).to_json(),
     }
 
 
 def sanitize_settings(raw: Any) -> dict[str, Any]:
     data: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
     d = SETTINGS_DEFAULTS
-    toggle = _as_choice(data.get("toggleKey"), d["toggleKey"], KEY_NAMES)
-    stop = _as_choice(data.get("stopKey"), d["stopKey"], KEY_NAMES)
+    toggle = _as_hotkey(data.get("toggleKey")) or d["toggleKey"]
+    stop = _as_hotkey(data.get("stopKey")) or d["stopKey"]
     if toggle == stop:
-        toggle, stop = d["toggleKey"], d["stopKey"]
+        stop = next(key for key in (d["stopKey"], "f9", "f7") if key != toggle)
     return {
         **sanitize_profile(data),
         "sound": _as_bool(data.get("sound"), d["sound"]),
@@ -137,6 +164,12 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
         "theme": _as_choice(data.get("theme"), d["theme"], {"dark", "light", "system"}),
         "toggleKey": toggle,
         "stopKey": stop,
+        "overlay": _as_bool(data.get("overlay"), d["overlay"]),
+        "countdown": _as_int(data.get("countdown"), d["countdown"], 0, 10),
+        "recordMoves": _as_bool(data.get("recordMoves"), d["recordMoves"]),
+        "runMode": _as_choice(data.get("runMode"), d["runMode"], {"simple", "sequence"}),
+        "checkUpdates": _as_bool(data.get("checkUpdates"), d["checkUpdates"]),
+        "lastUpdateCheck": _as_int(data.get("lastUpdateCheck"), d["lastUpdateCheck"], 0, 2**40),
     }
 
 
@@ -234,7 +267,16 @@ class SettingsStore:
             _logger.warning(
                 "Settings schema %s is newer than %s; loading best effort", version, SCHEMA_VERSION
             )
-        self.settings = sanitize_settings(raw.get("settings"))
+        raw_settings = raw.get("settings")
+        self.settings = sanitize_settings(raw_settings)
+        if isinstance(raw_settings, Mapping):
+            for field, role in (("toggleKey", "Start/pause"), ("stopKey", "Emergency stop")):
+                old = raw_settings.get(field)
+                if isinstance(old, str) and old.strip().lower() in RESERVED:
+                    new = parse_hotkey(self.settings[field]).label
+                    self.load_warning = (
+                        f"{role} hotkey moved from {old.upper()} to {new}: Windows reserves {old.upper()}."
+                    )
         self.profiles = _sanitize_profiles(raw.get("profiles"))
 
     def to_json(self) -> dict[str, Any]:

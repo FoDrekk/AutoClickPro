@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: AutoClickPro.AutoClickPro
+PackageVersion: {{version}}
+PackageLocale: en-US
+Publisher: AutoClick Pro
+PackageName: AutoClick Pro
+Moniker: autoclickpro
+License: Proprietary
+ShortDescription: Automatic mouse clicks, click sequences and a recorder for Windows.
+Tags:
+  - auto-clicker
+  - automation
+  - macro
+  - mouse
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

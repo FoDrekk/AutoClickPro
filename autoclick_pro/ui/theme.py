@@ -130,7 +130,23 @@ QPushButton#ghost:hover {
     border: 1px solid #4a5162;
     color: #ffffff;
 }
-QPushButton#primary:focus, QPushButton#danger:focus, QPushButton#ghost:focus {
+QPushButton#modifier {
+    background: #15171d;
+    color: #6a7180;
+    border: 1px solid #333947;
+    border-radius: 4px;
+    padding: 5px 8px;
+    min-width: 34px;
+}
+QPushButton#modifier:checked {
+    background: #2563c9;
+    color: white;
+    border: 1px solid #2563c9;
+}
+QPushButton#modifier:hover {
+    border: 1px solid #4a5162;
+}
+QPushButton#primary:focus, QPushButton#danger:focus, QPushButton#ghost:focus, QPushButton#modifier:focus {
     border: 1px solid #dce1ea;
 }
 QMenu {
@@ -149,7 +165,6 @@ QProgressBar {
     border: 1px solid #333947;
     border-radius: 2px;
     max-height: 10px;
-    text-visible: false;
 }
 QProgressBar::chunk {
     background: #2563c9;
@@ -218,8 +233,22 @@ def _palette(ink: str, faint: str, window: str, base: str, alt: str, button: str
     return palette
 
 
+_APPLIED: tuple[int, str] | None = None
+_QSS = {"light": _LIGHT_QSS, "system": "", "dark": _DARK_QSS}
+
+
 def set_app_theme(app: QApplication, mode: str) -> str:
-    global _DEFAULT_STYLE, _DEFAULT_PALETTE
+    """Apply a theme to the application and return the window stylesheet.
+
+    Re-applying the current theme is skipped: changing the app style
+    re-polishes every widget, which is slow.
+    """
+    global _DEFAULT_STYLE, _DEFAULT_PALETTE, _APPLIED
+    if mode not in _QSS:
+        mode = "dark"
+    if (id(app), mode) == _APPLIED:
+        return _QSS[mode]
+    _APPLIED = (id(app), mode)
     if _DEFAULT_STYLE is None:
         _DEFAULT_STYLE = app.style().objectName()
         _DEFAULT_PALETTE = QPalette(app.palette())

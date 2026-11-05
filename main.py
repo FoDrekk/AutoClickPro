@@ -9,6 +9,7 @@ from PySide6.QtCore import QLockFile, QSettings
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from autoclick_pro import __version__ as APP_VERSION
+from autoclick_pro import diagnostics
 from autoclick_pro.app_logging import install_excepthooks, logger, setup_logging
 from autoclick_pro.paths import log_path, settings_path
 from autoclick_pro.settings_store import SettingsStore
@@ -71,9 +72,16 @@ def main() -> int:
         return 0
     store = SettingsStore.load(settings_path(), legacy_loader=_legacy_qsettings)
     set_app_theme(app, store.settings["theme"])
+    # After the lock, so a second instance cannot clobber the first one's crash log.
+    previous_crash = diagnostics.take_previous_crash(diagnostics.crash_log_path())
+    diagnostics.enable_fault_handler(diagnostics.crash_log_path())
     logger.info("AutoClick Pro %s starting", APP_VERSION)
+    if previous_crash is not None:
+        logger.warning("The previous run ended unexpectedly; crash report: %s", previous_crash)
     window = MainWindow(store)
     window.show()
+    if previous_crash is not None:
+        window.notify_previous_crash(previous_crash)
     return app.exec()
 
 

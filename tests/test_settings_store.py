@@ -73,8 +73,8 @@ def test_legacy_string_values_are_coerced():
 
 
 def test_out_of_range_interval_rejected():
-    assert sanitize_profile({"interval": 5})["interval"] == PROFILE_DEFAULTS["interval"]
-    assert sanitize_profile({"interval": 10})["interval"] == 10
+    assert sanitize_profile({"interval": 0})["interval"] == PROFILE_DEFAULTS["interval"]
+    assert sanitize_profile({"interval": 1})["interval"] == 1
     assert sanitize_profile({"interval": 12.5})["interval"] == PROFILE_DEFAULTS["interval"]
 
 
@@ -184,3 +184,33 @@ def test_import_rejects_bad_files(tmp_path, path):
     with pytest.raises(ValueError):
         store.import_profiles(tmp_path / "missing.json")
     assert store.profiles == {}
+
+
+def test_jitter_values_clamped_to_defaults():
+    assert sanitize_profile({"jitterPct": 25, "jitterPx": 7})["jitterPct"] == 25
+    assert sanitize_profile({"jitterPct": 51})["jitterPct"] == 0
+    assert sanitize_profile({"jitterPx": -1})["jitterPx"] == 0
+
+
+def test_hotkeys_normalized():
+    clean = sanitize_settings({"toggleKey": "Alt+Ctrl+S", "stopKey": "Pause"})
+    assert (clean["toggleKey"], clean["stopKey"]) == ("ctrl+alt+s", "pause")
+
+
+@pytest.mark.parametrize("bad", ["a", "shift+b", "nope", 12, None])
+def test_invalid_hotkeys_fall_back(bad):
+    assert sanitize_settings({"toggleKey": bad})["toggleKey"] == SETTINGS_DEFAULTS["toggleKey"]
+
+
+def test_hotkey_collision_keeps_toggle():
+    clean = sanitize_settings({"toggleKey": "f8", "stopKey": "f12"})
+    assert clean["toggleKey"] == "f8"
+    assert clean["stopKey"] not in {"f8", "f12"}
+
+
+def test_reserved_f12_is_migrated_with_notice(path):
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": 1, "settings": {"stopKey": "f12"}}), encoding="utf-8")
+    store = SettingsStore.load(path)
+    assert store.settings["stopKey"] == "f8"
+    assert store.load_warning and "F12" in store.load_warning and "F8" in store.load_warning
