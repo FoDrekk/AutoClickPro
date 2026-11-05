@@ -326,62 +326,82 @@ class ClickEngine(QThread):
         return None
 
     def _run_step(self, backend: Any, step: Step, now: float) -> tuple[str, str | None]:
-        trigger = self._trigger
         if step.type == "click":
-            if self._mode == "simple" and trigger.enabled:
-                assert trigger.x is not None and trigger.y is not None
-                seen = backend.pixel(trigger.x, trigger.y)
-                if not color_matches(seen, parse_color(trigger.color), trigger.tolerance):
-                    if trigger.mode == "wait":
-                        return _Outcome.POLL, None
-                    return _Outcome.STOP, (
-                        f"Trigger color at {trigger.x}, {trigger.y} changed — clicking stopped."
-                    )
-            presses = 2 if step.double else 1
-            if self._stop_at is not None:
-                presses = max(1, min(presses, self._stop_at - self._click_count))
-            if step.x is not None and step.y is not None:
-                dx, dy = jitter_offset(self._rng, self._jitter_px)
-                x, y = step.x + dx, step.y + dy
-                if self._mode == "simple" and self._background_hwnd:
-                    backend.post_click(self._background_hwnd, x, y, step.button, presses)
-                else:
-                    backend.position = (x, y)
-                    backend.click(step.button, presses)
+            return self._run_click(backend, step)
+        if step.type in {"down", "up"}:
+            return self._run_press(backend, step)
+        if step.type == "move":
+            return self._run_move(backend, step)
+        if step.type in {"key_down", "key_up"}:
+            return self._run_key(backend, step)
+        if step.type == "wait_color":
+            return self._run_wait_color(backend, step, now)
+        return _Outcome.ADVANCE, None
+
+    def _run_click(self, backend: Any, step: Step) -> tuple[str, str | None]:
+        trigger = self._trigger
+        if self._mode == "simple" and trigger.enabled:
+            assert trigger.x is not None and trigger.y is not None
+            seen = backend.pixel(trigger.x, trigger.y)
+            if not color_matches(seen, parse_color(trigger.color), trigger.tolerance):
+                if trigger.mode == "wait":
+                    return _Outcome.POLL, None
+                return _Outcome.STOP, (
+                    f"Trigger color at {trigger.x}, {trigger.y} changed — clicking stopped."
+                )
+        presses = 2 if step.double else 1
+        if self._stop_at is not None:
+            presses = max(1, min(presses, self._stop_at - self._click_count))
+        if step.x is not None and step.y is not None:
+            dx, dy = jitter_offset(self._rng, self._jitter_px)
+            x, y = step.x + dx, step.y + dy
+            if self._mode == "simple" and self._background_hwnd:
+                backend.post_click(self._background_hwnd, x, y, step.button, presses)
             else:
+                backend.position = (x, y)
                 backend.click(step.button, presses)
-            self._click_count += presses
-        elif step.type in {"down", "up"}:
-            if step.x is not None and step.y is not None:
-                backend.position = (step.x, step.y)
-            down = step.type == "down"
-            backend.press(step.button, down)
-            if down:
-                self._held_buttons.add(step.button)
-                self._click_count += 1
-            else:
-                self._held_buttons.discard(step.button)
-        elif step.type == "move":
+        else:
+            backend.click(step.button, presses)
+        self._click_count += presses
+        return _Outcome.ADVANCE, None
+
+    def _run_press(self, backend: Any, step: Step) -> tuple[str, str | None]:
+        if step.x is not None and step.y is not None:
             backend.position = (step.x, step.y)
-        elif step.type in {"key_down", "key_up"}:
-            down = step.type == "key_down"
-            backend.key(step.vk, down, step.extended)
-            if down:
-                self._held_keys.add((step.vk, step.extended))
-            else:
-                self._held_keys.discard((step.vk, step.extended))
-        elif step.type == "wait_color":
-            assert step.x is not None and step.y is not None
-            if self._wait_since is None:
-                self._wait_since = now
-            if not color_matches(backend.pixel(step.x, step.y), parse_color(step.color), step.tolerance):
-                if step.timeout and (now - self._wait_since) * 1000 >= step.timeout:
-                    return _Outcome.STOP, (
-                        f"Step {self._step_index + 1}: {step.color} did not appear at "
-                        f"{step.x}, {step.y} within {step.timeout / 1000:g} s — sequence stopped."
-                    )
-                return _Outcome.POLL, None
-            self._wait_since = None
+        down = step.type == "down"
+        backend.press(step.button, down)
+        if down:
+            self._held_buttons.add(step.button)
+            self._click_count += 1
+        else:
+            self._held_buttons.discard(step.button)
+        return _Outcome.ADVANCE, None
+
+    def _run_move(self, backend: Any, step: Step) -> tuple[str, str | None]:
+        backend.position = (step.x, step.y)
+        return _Outcome.ADVANCE, None
+
+    def _run_key(self, backend: Any, step: Step) -> tuple[str, str | None]:
+        down = step.type == "key_down"
+        backend.key(step.vk, down, step.extended)
+        if down:
+            self._held_keys.add((step.vk, step.extended))
+        else:
+            self._held_keys.discard((step.vk, step.extended))
+        return _Outcome.ADVANCE, None
+
+    def _run_wait_color(self, backend: Any, step: Step, now: float) -> tuple[str, str | None]:
+        assert step.x is not None and step.y is not None
+        if self._wait_since is None:
+            self._wait_since = now
+        if not color_matches(backend.pixel(step.x, step.y), parse_color(step.color), step.tolerance):
+            if step.timeout and (now - self._wait_since) * 1000 >= step.timeout:
+                return _Outcome.STOP, (
+                    f"Step {self._step_index + 1}: {step.color} did not appear at "
+                    f"{step.x}, {step.y} within {step.timeout / 1000:g} s — sequence stopped."
+                )
+            return _Outcome.POLL, None
+        self._wait_since = None
         return _Outcome.ADVANCE, None
 
     def run(self) -> None:
@@ -418,53 +438,26 @@ class ClickEngine(QThread):
                     pending_gap = None
                     wait = True
                 else:
-                    now = time.monotonic()
-                    gap = pending_gap if pending_gap is not None else self._interval_ms / 1000.0 * gap_factor
-                    due = now if last_due is None else last_due + gap
-                    if self._stop_time is not None:
-                        due = min(due, self._stop_time)
-                    wait = now < due
-                    timeout = due - now
+                    wait, now, gap, due, timeout = self._snapshot_state(
+                        last_due, pending_gap, gap_factor
+                    )
                 if not wait:
                     try:
-                        if self._stop_time is not None and now >= self._stop_time:
-                            self._active = False
-                            limit_message = "Duration limit reached — clicking stopped."
-                        elif self._failsafe and in_failsafe_corner(
-                            backend.position[0], backend.position[1], self._failsafe_corners
-                        ):
-                            self._active = False
-                            failsafe_message = "Failsafe corner reached — clicking stopped."
-                        elif (
-                            self._mode == "simple"
-                            and self._position_mode == "fixed"
-                            and self._fixed_position is None
-                        ):
-                            self._active = False
-                            error_message = "Capture the mouse position before using fixed coordinates."
-                        elif self._mode == "sequence" and not self._sequence.steps:
-                            self._active = False
-                            error_message = "The sequence has no steps."
+                        kind, message = self._check_stop_conditions(backend, now)
+                        if kind == "error":
+                            error_message = message
+                        elif kind == "failsafe":
+                            failsafe_message = message
+                        elif kind == "limit":
+                            limit_message = message
                         else:
                             step = self._current_step()
                             outcome, message = self._run_step(backend, step, now)
                             dirty = True
-                            if outcome == _Outcome.STOP:
-                                self._active = False
-                                condition_message = message
-                            elif outcome == _Outcome.POLL:
-                                last_due, pending_gap = now, POLL_INTERVAL
-                            else:
-                                if self._stop_at is not None and self._click_count >= self._stop_at:
-                                    self._active = False
-                                    limit_message = (
-                                        f"Click target reached ({self._click_count}) — clicking stopped."
-                                    )
-                                else:
-                                    finished = self._advance(step)
-                                    if finished:
-                                        self._active = False
-                                        limit_message = finished
+                            (condition_message, limit_message, last_due, pending_gap) = self._handle_outcome(
+                                step, outcome, message, now, last_due, pending_gap
+                            )
+                            if outcome == _Outcome.ADVANCE:
                                 # Fixed-rate schedule: anchor to the previous due time so
                                 # wake-up latency and input cost do not add drift, but
                                 # never burst to catch up after a stall of a whole gap.
@@ -481,21 +474,125 @@ class ClickEngine(QThread):
                     snapshot = (self._click_count, self._step_index, self._loops_done)
                     dirty = False
 
-            if snapshot is not None:
-                last_emit = time.monotonic()
-                self.click_count_changed.emit(snapshot[0])
-                self.progress_changed.emit(snapshot[1], snapshot[2])
-            if error_message is not None:
-                _logger.error("%s", error_message)
-                self.error_occurred.emit(error_message)
-            if failsafe_message is not None:
-                _logger.info("%s", failsafe_message)
-                self.failsafe_triggered.emit(failsafe_message)
-            if condition_message is not None:
-                _logger.info("%s", condition_message)
-                self.condition_stopped.emit(condition_message)
-            if limit_message is not None:
-                _logger.info("%s", limit_message)
-                self.limit_reached.emit(limit_message)
+            last_emit = self._emit_messages(
+                last_emit, snapshot, error_message, failsafe_message, condition_message, limit_message
+            )
             if wait:
                 self._waiter.wait(timeout)
+
+    def _snapshot_state(
+        self, last_due: float | None, pending_gap: float | None, gap_factor: float
+    ) -> tuple[bool, float, float, float, float]:
+        """Work out whether the next step is due, and when to wake for it.
+
+        Called with the lock held, only while the run is active. Returns
+        (wait, now, gap, due, timeout): ``wait`` is True while the next
+        step is still in the future; ``timeout`` is how long the worker
+        may sleep before it is due.
+        """
+        now = time.monotonic()
+        gap = pending_gap if pending_gap is not None else self._interval_ms / 1000.0 * gap_factor
+        due = now if last_due is None else last_due + gap
+        if self._stop_time is not None:
+            due = min(due, self._stop_time)
+        return now < due, now, gap, due, due - now
+
+    def _check_stop_conditions(
+        self, backend: Any, now: float
+    ) -> tuple[str | None, str | None]:
+        """First stop condition that fires, as (kind, message).
+
+        Kind is "error", "failsafe" or "limit"; (None, None) means run a
+        step. Called with the lock held. A firing condition deactivates
+        the run.
+        """
+        if self._stop_time is not None and now >= self._stop_time:
+            self._active = False
+            return "limit", "Duration limit reached — clicking stopped."
+        if self._failsafe and in_failsafe_corner(
+            backend.position[0], backend.position[1], self._failsafe_corners
+        ):
+            self._active = False
+            return "failsafe", "Failsafe corner reached — clicking stopped."
+        if (
+            self._mode == "simple"
+            and self._position_mode == "fixed"
+            and self._fixed_position is None
+        ):
+            self._active = False
+            return "error", "Capture the mouse position before using fixed coordinates."
+        if self._mode == "sequence" and not self._sequence.steps:
+            self._active = False
+            return "error", "The sequence has no steps."
+        return None, None
+
+    def _handle_outcome(
+        self,
+        step: Step,
+        outcome: str,
+        message: str | None,
+        now: float,
+        last_due: float | None,
+        pending_gap: float | None,
+    ) -> tuple[str | None, str | None, float | None, float | None]:
+        """Act on one step's outcome.
+
+        Called with the lock held, after _run_step has run (so the tick
+        is already marked dirty by the caller). Returns
+        (condition_message, limit_message, last_due, pending_gap): the
+        messages are None unless the step stopped the run. For a POLL
+        outcome the next tick is POLL_INTERVAL away; otherwise the
+        schedule is unchanged here — the caller works out the next due
+        time after an ADVANCE, so a limit message set here still stands
+        even if that scheduling step raises.
+        """
+        if outcome == _Outcome.STOP:
+            self._active = False
+            return message, None, last_due, pending_gap
+        if outcome == _Outcome.POLL:
+            return None, None, now, POLL_INTERVAL
+        if self._stop_at is not None and self._click_count >= self._stop_at:
+            self._active = False
+            return (
+                None,
+                f"Click target reached ({self._click_count}) — clicking stopped.",
+                last_due,
+                pending_gap,
+            )
+        finished = self._advance(step)
+        if finished:
+            self._active = False
+            return None, finished, last_due, pending_gap
+        return None, None, last_due, pending_gap
+
+    def _emit_messages(
+        self,
+        last_emit: float,
+        snapshot: tuple[int, int, int] | None,
+        error_message: str | None,
+        failsafe_message: str | None,
+        condition_message: str | None,
+        limit_message: str | None,
+    ) -> float:
+        """Fan one tick's snapshot and messages out to the UI, in order.
+
+        Runs without the lock held. Returns the updated last-emit time:
+        the counter only refreshes when a snapshot was taken.
+        """
+        if snapshot is not None:
+            last_emit = time.monotonic()
+            self.click_count_changed.emit(snapshot[0])
+            self.progress_changed.emit(snapshot[1], snapshot[2])
+        if error_message is not None:
+            _logger.error("%s", error_message)
+            self.error_occurred.emit(error_message)
+        if failsafe_message is not None:
+            _logger.info("%s", failsafe_message)
+            self.failsafe_triggered.emit(failsafe_message)
+        if condition_message is not None:
+            _logger.info("%s", condition_message)
+            self.condition_stopped.emit(condition_message)
+        if limit_message is not None:
+            _logger.info("%s", limit_message)
+            self.limit_reached.emit(limit_message)
+        return last_emit
