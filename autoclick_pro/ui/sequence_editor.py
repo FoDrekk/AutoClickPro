@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QTableView,
@@ -443,9 +444,10 @@ class SequenceEditor(QWidget):
     def _update_summary(self) -> None:
         steps = self.model.steps()
         total_ms = sum(s.delay * (s.repeat if s.type == "click" else 1) for s in steps)
+        speed = float(self.speed_combo.currentData())
         self.summary_label.setText(
             f"{len(steps)} step{'s' if len(steps) != 1 else ''} · "
-            f"about {total_ms / 1000:.1f} s per loop at 1×"
+            f"about {total_ms / 1000 / speed:.1f} s per loop at {speed:g}×"
         )
 
     # ---------------------------------------------------------- actions
@@ -508,4 +510,16 @@ class SequenceEditor(QWidget):
         self.model.remove(self.selected_rows())
 
     def clear(self) -> None:
+        step_count = self.model.rowCount()
+        if step_count == 0:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Clear all steps",
+            f"Clear all {step_count} step{'s' if step_count != 1 else ''}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
         self.model.set_steps([])

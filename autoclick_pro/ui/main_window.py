@@ -215,10 +215,11 @@ class MainWindow(QMainWindow):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return group, form
 
-    def _ghost_button(self, text: str, slot) -> QPushButton:
+    def _ghost_button(self, text: str, slot=None) -> QPushButton:
         button = QPushButton(text)
         button.setObjectName("ghost")
-        button.clicked.connect(slot)
+        if slot is not None:
+            button.clicked.connect(slot)
         return button
 
     def _scroll_page(self, *widgets: QWidget) -> QScrollArea:
@@ -504,10 +505,10 @@ class MainWindow(QMainWindow):
             "Asks GitHub for the latest release number. Nothing is downloaded or installed, "
             "and no personal data is sent."
         )
-        self.update_button = self._ghost_button("Check now", lambda: None)
+        self.update_button = self._ghost_button("Check now")
         self.update_label = QLabel()
         self.update_label.setWordWrap(True)
-        self.update_open_button = self._ghost_button("Open release page", lambda: None)
+        self.update_open_button = self._ghost_button("Open release page")
         self.update_open_button.setVisible(False)
         updates_form.addRow("", self.updates_check)
         updates_form.addRow("Status:", self.update_label)
@@ -519,7 +520,7 @@ class MainWindow(QMainWindow):
             self.updates_check.setEnabled(False)
         else:
             self.update_label.setText(f"Installed version: {__version__}")
-        return [window_group, hotkeys_group, updates_group, profiles_group]
+        return [window_group, hotkeys_group, profiles_group, updates_group]
 
     def _set_status(self, text: str, kind: str) -> None:
         self.status_label.setText(text)
@@ -575,24 +576,24 @@ class MainWindow(QMainWindow):
             "stopKey": self._hotkey_specs[1],
         }
 
-    def _apply_click_settings(self, d: dict[str, Any]) -> None:
-        self.interval_spin.setValue(int(d["interval"]))
-        self.position_combo.setCurrentIndex(1 if d["mode"] == "fixed" else 0)
-        if d["fixedX"] is not None and d["fixedY"] is not None:
-            self._fixed_position = (int(d["fixedX"]), int(d["fixedY"]))
+    def _apply_click_settings(self, settings: dict[str, Any]) -> None:
+        self.interval_spin.setValue(int(settings["interval"]))
+        self.position_combo.setCurrentIndex(1 if settings["mode"] == "fixed" else 0)
+        if settings["fixedX"] is not None and settings["fixedY"] is not None:
+            self._fixed_position = (int(settings["fixedX"]), int(settings["fixedY"]))
             self.position_label.setText(f"X: {self._fixed_position[0]}   Y: {self._fixed_position[1]}")
-        idx = self.button_combo.findData(d["button"])
+        idx = self.button_combo.findData(settings["button"])
         self.button_combo.setCurrentIndex(max(idx, 0))
-        self.double_check.setChecked(bool(d["double"]))
-        self.max_clicks_spin.setValue(int(d["maxClicks"]))
-        self.max_seconds_spin.setValue(float(d["maxSeconds"]))
-        self.failsafe_check.setChecked(bool(d["failsafe"]))
-        self.jitter_pct_spin.setValue(int(d["jitterPct"]))
-        self.jitter_px_spin.setValue(int(d["jitterPx"]))
+        self.double_check.setChecked(bool(settings["double"]))
+        self.max_clicks_spin.setValue(int(settings["maxClicks"]))
+        self.max_seconds_spin.setValue(float(settings["maxSeconds"]))
+        self.failsafe_check.setChecked(bool(settings["failsafe"]))
+        self.jitter_pct_spin.setValue(int(settings["jitterPct"]))
+        self.jitter_px_spin.setValue(int(settings["jitterPx"]))
         with QSignalBlocker(self.background_check):
-            self.background_check.setChecked(bool(d["background"]))
-        self._apply_trigger(sanitize_trigger(d["trigger"]))
-        self.sequence_editor.set_sequence(sanitize_sequence(d["sequence"]))
+            self.background_check.setChecked(bool(settings["background"]))
+        self._apply_trigger(sanitize_trigger(settings["trigger"]))
+        self.sequence_editor.set_sequence(sanitize_sequence(settings["sequence"]))
         self._sync_jitter()
         self._update_rate_label()
         self._sync_position()
@@ -601,26 +602,26 @@ class MainWindow(QMainWindow):
         self.engine.set_double_click(self.double_check.isChecked())
         self.engine.set_failsafe(self.failsafe_check.isChecked())
 
-    def _apply_settings(self, d: dict[str, Any]) -> None:
-        self._apply_click_settings(d)
-        self.sound_check.setChecked(bool(d["sound"]))
-        self.top_check.setChecked(bool(d["alwaysOnTop"]))
-        self.tray_check.setChecked(bool(d["minimizeToTray"]))
-        self.overlay_check.setChecked(bool(d["overlay"]))
-        self.updates_check.setChecked(bool(d["checkUpdates"]) and self._update_source_ready)
-        self._last_update_check = int(d["lastUpdateCheck"])
-        self.countdown_spin.setValue(int(d["countdown"]))
-        self.sequence_editor.record_moves_check.setChecked(bool(d["recordMoves"]))
+    def _apply_settings(self, settings: dict[str, Any]) -> None:
+        self._apply_click_settings(settings)
+        self.sound_check.setChecked(bool(settings["sound"]))
+        self.top_check.setChecked(bool(settings["alwaysOnTop"]))
+        self.tray_check.setChecked(bool(settings["minimizeToTray"]))
+        self.overlay_check.setChecked(bool(settings["overlay"]))
+        self.updates_check.setChecked(bool(settings["checkUpdates"]) and self._update_source_ready)
+        self._last_update_check = int(settings["lastUpdateCheck"])
+        self.countdown_spin.setValue(int(settings["countdown"]))
+        self.sequence_editor.record_moves_check.setChecked(bool(settings["recordMoves"]))
         with QSignalBlocker(self.theme_combo):
-            self.theme_combo.setCurrentIndex(max(self.theme_combo.findData(d["theme"]), 0))
+            self.theme_combo.setCurrentIndex(max(self.theme_combo.findData(settings["theme"]), 0))
         self._apply_theme()
-        self.toggle_edit.set_hotkey(d["toggleKey"])
-        self.stop_edit.set_hotkey(d["stopKey"])
+        self.toggle_edit.set_hotkey(settings["toggleKey"])
+        self.stop_edit.set_hotkey(settings["stopKey"])
         self._apply_always_on_top()
         self._sync_hotkeys()
         with QSignalBlocker(self.tabs):
-            self.tabs.setCurrentIndex(_SEQUENCE_TAB if d["runMode"] == "sequence" else _CLICKER_TAB)
-        self._set_run_mode(d["runMode"])
+            self.tabs.setCurrentIndex(_SEQUENCE_TAB if settings["runMode"] == "sequence" else _CLICKER_TAB)
+        self._set_run_mode(settings["runMode"])
 
     @Slot()
     def _schedule_save(self, *_args) -> None:
@@ -835,10 +836,14 @@ class MainWindow(QMainWindow):
         self.engine.set_trigger(trigger)
 
     def _sync_trigger(self, *_args) -> None:
-        t = self._trigger
+        trigger = self._trigger
         self._apply_trigger(
             Trigger(
-                str(self.trigger_combo.currentData()), t.x, t.y, t.color, self.trigger_tolerance_spin.value()
+                str(self.trigger_combo.currentData()),
+                trigger.x,
+                trigger.y,
+                trigger.color,
+                self.trigger_tolerance_spin.value(),
             )
         )
 
@@ -1017,6 +1022,11 @@ class MainWindow(QMainWindow):
                 self.engine.set_background_target(None)
             if self._trigger.mode != "off" and self._trigger.x is None:
                 self._set_status("Status: Pick the trigger pixel first", "error")
+                self._alert(
+                    "Trigger pixel required",
+                    "Press 'Pick pixel…' to choose the trigger pixel.",
+                    "info",
+                )
                 return False
         else:
             sequence = self.sequence_editor.sequence()
