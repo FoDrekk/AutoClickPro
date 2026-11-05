@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -190,7 +192,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 }
 """
 
-_LIGHT_SWAP = {
+_LIGHT_PALETTE = {
     "#1e2129": "#ffffff",
     "#2c313c": "#d5dae2",
     "#15171d": "#f5f6f9",
@@ -203,9 +205,26 @@ _LIGHT_SWAP = {
     "#6a7180": "#9aa0a6",
 }
 
-_LIGHT_QSS = _DARK_QSS
-for _dark_hex, _light_hex in _LIGHT_SWAP.items():
-    _LIGHT_QSS = _LIGHT_QSS.replace(_dark_hex, _light_hex)
+_LIGHT_HEX = re.compile("|".join(_LIGHT_PALETTE))
+
+
+def _to_light_qss(dark_qss: str) -> str:
+    """Recolour the dark stylesheet for the light theme, in one pass.
+
+    Each dark hex is replaced by its light counterpart from
+    _LIGHT_PALETTE. A single regex pass means replacement text is
+    never re-scanned: the old loop replaced one hex at a time, so a
+    light value that happened to match a later dark key would have
+    been swapped a second time.
+
+    The accent #2563c9 is deliberately absent from the palette, so
+    it stays the same in both themes — exactly as the old loop left
+    it (it was never a swap key).
+    """
+    return _LIGHT_HEX.sub(lambda match: _LIGHT_PALETTE[match.group(0)], dark_qss)
+
+
+_LIGHT_QSS = _to_light_qss(_DARK_QSS)
 
 _DEFAULT_STYLE: str | None = None
 _DEFAULT_PALETTE: QPalette | None = None
@@ -270,17 +289,44 @@ def set_app_theme(app: QApplication, mode: str) -> str:
     return _DARK_QSS
 
 
+# Per-theme label colours. "system" (and any unknown mode) falls back
+# to the OS palette for text, so its ink/blue/muted/coord slots stay
+# empty; the hero box is the light one, exactly as the old else branch
+# had it. See U7 in the audit: the forced-white hero in system mode
+# is a known wart, left unchanged by this slice.
+_LABEL_STYLES = {
+    "dark": {
+        "ink": "#f2f4f8",
+        "blue": "#dce1ea",
+        "muted": "#8b93a3",
+        "coord": "#6ea8fe",
+        "hero_bg": "background: #1e2129; border: 1px solid #2c313c;",
+    },
+    "light": {
+        "ink": "#14161b",
+        "blue": "#0b3d91",
+        "muted": "#5b6270",
+        "coord": "#0b3d91",
+        "hero_bg": "background: #ffffff; border: 1px solid #d5dae2;",
+    },
+    "system": {
+        "ink": "",
+        "blue": "",
+        "muted": "",
+        "coord": "",
+        "hero_bg": "background: #ffffff; border: 1px solid #d5dae2;",
+    },
+}
+
+
 def label_styles(mode: str) -> dict[str, str]:
     """Inline styles for header, counter and accent labels in each theme."""
-    ink = "#f2f4f8" if mode == "dark" else "#14161b" if mode == "light" else ""
-    blue = "#dce1ea" if mode == "dark" else "#0b3d91" if mode == "light" else ""
-    muted = "#8b93a3" if mode == "dark" else "#5b6270" if mode == "light" else ""
-    coord = "#6ea8fe" if mode == "dark" else "#0b3d91" if mode == "light" else ""
-    hero_bg = (
-        "background: #1e2129; border: 1px solid #2c313c;"
-        if mode == "dark"
-        else "background: #ffffff; border: 1px solid #d5dae2;"
-    )
+    theme = _LABEL_STYLES.get(mode, _LABEL_STYLES["system"])
+    ink = theme["ink"]
+    blue = theme["blue"]
+    muted = theme["muted"]
+    coord = theme["coord"]
+    hero_bg = theme["hero_bg"]
     ink_css = f" color: {ink};" if ink else ""
     muted_css = f" color: {muted};" if muted else ""
     return {
