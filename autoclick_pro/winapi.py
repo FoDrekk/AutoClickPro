@@ -59,17 +59,26 @@ WM_SYSKEYUP = 0x0105
 WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
+WM_LBUTTONDBLCLK = 0x0203
 WM_RBUTTONDOWN = 0x0204
 WM_RBUTTONUP = 0x0205
+WM_RBUTTONDBLCLK = 0x0206
 WM_MBUTTONDOWN = 0x0207
 WM_MBUTTONUP = 0x0208
+WM_MBUTTONDBLCLK = 0x0209
+
+# Key-state flags carried in wParam of button messages.
+MK_LBUTTON = 0x0001
+MK_RBUTTON = 0x0002
+MK_MBUTTON = 0x0010
 
 # Window messages for background clicks: (down, up, double-click, MK_* flag).
 _BUTTON_MESSAGES = {
-    "left": (0x0201, 0x0202, 0x0203, 0x0001),
-    "right": (0x0204, 0x0205, 0x0206, 0x0002),
-    "middle": (0x0207, 0x0208, 0x0209, 0x0010),
+    "left": (WM_LBUTTONDOWN, WM_LBUTTONUP, WM_LBUTTONDBLCLK, MK_LBUTTON),
+    "right": (WM_RBUTTONDOWN, WM_RBUTTONUP, WM_RBUTTONDBLCLK, MK_RBUTTON),
+    "middle": (WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MBUTTONDBLCLK, MK_MBUTTON),
 }
+# GetAncestor flag: the root (top-level ancestor) window.
 _GA_ROOT = 2
 _CLR_INVALID = 0xFFFFFFFF
 
@@ -424,10 +433,6 @@ class InputBackend:
         for message, wparam in messages:
             if not _PostMessageW(hwnd, message, wparam, lparam):
                 raise _last_error("PostMessage")
-
-
-# Kept for callers written against the 2.0 name.
-SendInputMouse = InputBackend
 
 
 def pixel_color(x: int, y: int) -> tuple[int, int, int]:
