@@ -123,15 +123,32 @@ def _int(value: Any, default: int, low: int, high: int) -> int:
 
 
 def _coord(value: Any) -> int | None:
+    # Virtual-desktop coordinates; negative values are valid on multi-monitor setups.
     sentinel = COORD_LIMIT * 10
     result = _int(value, sentinel, -COORD_LIMIT, COORD_LIMIT)
     return None if result == sentinel else result
 
 
-def _bool(value: Any) -> bool:
+def _bool(value: Any, default: bool = False) -> bool:
+    """True/False from untrusted data; anything unrecognised falls back to ``default``.
+
+    Shared with settings_store: the two modules used to define this twice
+    (here without a default, there as _as_bool), and the versions disagreed
+    on unrecognised values — this one returned False, that one returned the
+    default. This keeps the _as_bool behaviour, which the settings tests
+    rely on (e.g. "sound": [] must fall back to True, not False).
+    """
+    if isinstance(value, bool):
+        return value
     if isinstance(value, str):
-        return value.strip().lower() in {"true", "1", "yes"}
-    return bool(value) if isinstance(value, bool | int) else False
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes"}:
+            return True
+        if lowered in {"false", "0", "no"}:
+            return False
+    if isinstance(value, int):
+        return bool(value)
+    return default
 
 
 def _color(value: Any, default: str = "#000000") -> str:
