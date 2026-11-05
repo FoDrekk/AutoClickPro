@@ -13,7 +13,7 @@ AutoClick Pro is a desktop auto-clicker for Windows built with Python and PySide
 - **Recorder**: press Record, use the mouse and keyboard, and stop with the start/pause hotkey. Quick clicks become click steps, drags stay press/release pairs, timing is kept. Input aimed at AutoClick Pro itself and injected input are ignored; the stop hotkey is removed from the end. Keys or buttons a sequence leaves pressed are released when it stops.
 - **Color trigger** (Clicker tab): click only while a pixel has a given color, or stop when it changes.
 - **Background clicks**: send clicks to the picked window as window messages without moving your cursor. Many games and some apps ignore these.
-- Optional start countdown and a floating, click-through status overlay.
+- Optional start countdown and a floating, draggable status overlay.
 - Auto-stop limits: max clicks and max duration, with live `count / target`.
 - Pause and resume keep the click count, the click target and the remaining duration.
 - Corner failsafe: slam the cursor into the top-left corner of the desktop to halt. With several monitors, this is the corner the cursor actually stops at when pushed up and left.
