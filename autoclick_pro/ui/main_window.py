@@ -45,7 +45,7 @@ from autoclick_pro.click_engine import (
 from autoclick_pro.global_hotkeys import DEFAULT_STOP, DEFAULT_TOGGLE, GlobalHotkeys, parse_hotkey
 from autoclick_pro.paths import asset_path, log_path
 from autoclick_pro.recorder import InputRecorder, events_to_steps
-from autoclick_pro.settings_store import PROFILE_KEYS, SettingsStore, validate_profile_name
+from autoclick_pro.settings_store import PROFILE_KEYS, SETTINGS_DEFAULTS, SettingsStore, validate_profile_name
 from autoclick_pro.steps import Trigger, format_color, sanitize_sequence, sanitize_trigger
 from autoclick_pro.ui.hotkey_edit import HotkeyEdit
 from autoclick_pro.ui.hud import StatusHud
@@ -221,7 +221,8 @@ class MainWindow(QMainWindow):
     def _make_card(self, title: str) -> tuple[QGroupBox, QFormLayout]:
         group = QGroupBox(title)
         form = QFormLayout(group)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return group, form
 
@@ -235,13 +236,14 @@ class MainWindow(QMainWindow):
     def _scroll_page(self, *widgets: QWidget) -> QScrollArea:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(2, 10, 8, 4)
-        layout.setSpacing(12)
+        layout.setContentsMargins(4, 16, 8, 8)
+        layout.setSpacing(16)
         for widget in widgets:
             layout.addWidget(widget)
         layout.addStretch(1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setWidget(page)
         return scroll
@@ -250,8 +252,8 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("root")
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(24, 22, 24, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setSpacing(16)
         layout.addLayout(self._build_header())
         layout.addWidget(self._build_hero())
         layout.addLayout(self._build_controls())
@@ -294,6 +296,7 @@ class MainWindow(QMainWindow):
         hero_layout.setSpacing(10)
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
+        self.status_label.setMaximumHeight(72)
         self._set_status("Status: Stopped", "idle")
         hero_layout.addWidget(self.status_label)
         hero_row = QHBoxLayout()
@@ -495,6 +498,7 @@ class MainWindow(QMainWindow):
             self._build_hotkeys_card(),
             self._build_profiles_card(),
             self._build_updates_card(),
+            self._build_reset_card(),
         ]
 
     def _build_window_card(self) -> QGroupBox:
@@ -588,9 +592,37 @@ class MainWindow(QMainWindow):
             self.update_label.setText(f"Installed version: {__version__}")
         return updates_group
 
+    def _build_reset_card(self) -> QGroupBox:
+        group, form = self._make_card("Reset")
+        note = QLabel("Restore all app settings to defaults. Saved profiles are kept.")
+        note.setWordWrap(True)
+        self.reset_button = self._ghost_button("Reset to defaults…", self._reset_defaults)
+        form.addRow("", note)
+        form.addRow("", self.reset_button)
+        return group
+
+    def _reset_defaults(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "Reset to defaults",
+            "Reset all app settings and the sequence? Saved profiles will be kept.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if self.engine.is_active():
+            self._emergency_stop()
+        self._fixed_position = None
+        self._background_target = None
+        self._trigger = Trigger()
+        self._apply_settings(dict(SETTINGS_DEFAULTS))
+        self._save_settings()
+        self._set_status("Status: Defaults restored. Saved profiles kept.", "done")
+
     def _set_status(self, text: str, kind: str) -> None:
+        self._status_kind = kind
         self.status_label.setText(text)
-        self.status_label.setStyleSheet(status_style(kind))
+        mode = str(self.theme_combo.currentData()) if hasattr(self, "theme_combo") else "dark"
+        self.status_label.setStyleSheet(status_style(kind, mode))
         if hasattr(self, "overlay_check"):
             self._refresh_hud()
 
@@ -990,6 +1022,7 @@ class MainWindow(QMainWindow):
         self.trigger_label.setStyleSheet(styles["position"])
         self.version_pill.setStyleSheet(styles["version"])
         self.hero.setStyleSheet(styles["hero"])
+        self.status_label.setStyleSheet(status_style(self._status_kind, mode))
 
     def _apply_always_on_top(self, *_args) -> None:
         # setWindowFlag() re-parents and hides a visible window; restore it.

@@ -11,6 +11,8 @@ from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QMouseEvent, QPainter
 from PySide6.QtWidgets import QWidget
 
+from autoclick_pro.winapi import exclude_from_capture
+
 _COLORS = {
     "idle": QColor("#a8b0bd"),
     "run": QColor("#57ab5f"),
@@ -53,6 +55,7 @@ class StatusHud(QWidget):
         self._countdown: int | None = None
         self._drag_offset: QPoint | None = None
         self._custom_pos: QPoint | None = None
+        exclude_from_capture(int(self.winId()))
         self._place()
 
     def _place(self) -> None:

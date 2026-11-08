@@ -15,14 +15,18 @@ STATUS_COLORS = {
     "done": ("rgba(88,140,255,0.12)", "#7aa5f0"),
     "error": ("rgba(248,81,73,0.12)", "#e05a52"),
 }
+_LIGHT_STATUS_COLORS = {
+    "idle": "#475569", "run": "#166534", "pause": "#854d0e",
+    "stop": "#b91c1c", "done": "#1d4ed8", "error": "#b91c1c",
+}
 
 _DARK_QSS = """
 QGroupBox {
     background: #1e2129;
     border: 1px solid #2c313c;
-    border-radius: 4px;
-    margin-top: 12px;
-    padding: 12px 12px 10px 12px;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 12px;
     font-size: 13px;
     font-weight: 600;
     color: #c8cdd6;
@@ -36,14 +40,44 @@ QGroupBox::title {
 QSpinBox, QDoubleSpinBox, QComboBox {
     background: #15171d;
     border: 1px solid #333947;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 5px 8px;
     color: #dce1ea;
     selection-background-color: #2563c9;
     min-height: 22px;
 }
 QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
-    border: 1px solid #2563c9;
+    border: 2px solid #58a6ff;
+    padding: 4px 7px;
+}
+QLineEdit:focus, QTableView:focus, QTableWidget:focus {
+    border: 2px solid #58a6ff;
+}
+QTabWidget::pane {
+    border: 0;
+    background: transparent;
+    top: -1px;
+}
+QTabBar::tab {
+    background: transparent;
+    color: #8b93a3;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 10px 18px;
+    margin-right: 4px;
+    font-weight: 600;
+}
+QTabBar::tab:hover {
+    background: #1e2129;
+    color: #dce1ea;
+}
+QTabBar::tab:selected {
+    background: #2563c9;
+    color: #ffffff;
+    border-color: #2563c9;
+}
+QTabBar::tab:focus {
+    border: 2px solid #58a6ff;
 }
 QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
     color: #6a7180;
@@ -98,7 +132,7 @@ QPushButton#primary {
     font-size: 14px;
     font-weight: 600;
     border: 1px solid #2563c9;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 10px 14px;
 }
 QPushButton#primary:hover {
@@ -115,7 +149,7 @@ QPushButton#danger {
     font-size: 13px;
     font-weight: 600;
     border: 1px solid #b02a25;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 10px 14px;
 }
 QPushButton#danger:hover {
@@ -125,7 +159,7 @@ QPushButton#ghost {
     background: #15171d;
     color: #dce1ea;
     border: 1px solid #333947;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 7px 12px;
 }
 QPushButton#ghost:hover {
@@ -136,7 +170,7 @@ QPushButton#modifier {
     background: #15171d;
     color: #6a7180;
     border: 1px solid #333947;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 5px 8px;
     min-width: 34px;
 }
@@ -148,8 +182,31 @@ QPushButton#modifier:checked {
 QPushButton#modifier:hover {
     border: 1px solid #4a5162;
 }
-QPushButton#primary:focus, QPushButton#danger:focus, QPushButton#ghost:focus, QPushButton#modifier:focus {
-    border: 1px solid #dce1ea;
+QPushButton:focus {
+    border: 2px solid #58a6ff;
+}
+QCheckBox::indicator:focus {
+    border: 2px solid #58a6ff;
+}
+QLineEdit, QTableView, QTableWidget {
+    background: #15171d;
+    color: #dce1ea;
+    border: 1px solid #333947;
+    border-radius: 8px;
+    selection-background-color: #2563c9;
+}
+QHeaderView::section {
+    background: #1e2129;
+    color: #c8cdd6;
+    border: 0;
+    padding: 8px;
+    font-weight: 600;
+}
+QToolTip {
+    background: #1e2129;
+    color: #dce1ea;
+    border: 1px solid #4a5162;
+    padding: 6px;
 }
 QMenu {
     background: #1e2129;
@@ -202,7 +259,9 @@ _LIGHT_PALETTE = {
     "#262b36": "#d5dae2",
     "#dce1ea": "#1a1a1a",
     "#c8cdd6": "#3c4350",
-    "#6a7180": "#9aa0a6",
+    "#6a7180": "#5b6270",
+    "#8b93a3": "#475569",
+    "#58a6ff": "#0b63ce",
 }
 
 _LIGHT_HEX = re.compile("|".join(_LIGHT_PALETTE))
@@ -342,8 +401,10 @@ def label_styles(mode: str) -> dict[str, str]:
     }
 
 
-def status_style(kind: str) -> str:
+def status_style(kind: str, mode: str = "dark") -> str:
     bg, fg = STATUS_COLORS.get(kind, STATUS_COLORS["idle"])
+    if mode == "light":
+        fg = _LIGHT_STATUS_COLORS.get(kind, _LIGHT_STATUS_COLORS["idle"])
     return (
         f"background: {bg}; color: {fg}; font-size: 13px; "
         "font-weight: 700; border-radius: 10px; padding: 8px 12px;"

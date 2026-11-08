@@ -81,11 +81,19 @@ _BUTTON_MESSAGES = {
 # GetAncestor flag: the root (top-level ancestor) window.
 _GA_ROOT = 2
 _CLR_INVALID = 0xFFFFFFFF
+_WDA_EXCLUDEFROMCAPTURE = 0x00000011
 
 _INFINITE = 0xFFFFFFFF
 _WAIT_FAILED = 0xFFFFFFFF
 _CREATE_WAITABLE_TIMER_HIGH_RESOLUTION = 0x00000002
 _TIMER_ALL_ACCESS = 0x1F0003
+
+
+def exclude_from_capture(hwnd: int) -> bool:
+    """Keep a window visible on screen while excluding it from captures."""
+    if not IS_WINDOWS:
+        return False
+    return bool(_SetWindowDisplayAffinity(hwnd, _WDA_EXCLUDEFROMCAPTURE))
 
 
 def button_flag_sequence(button: str, count: int, swapped: bool = False) -> list[int]:
@@ -304,6 +312,9 @@ if IS_WINDOWS:
         _user32, "GetWindowThreadProcessId", wintypes.DWORD, wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
     )
     _GetForegroundWindow = _bind(_user32, "GetForegroundWindow", wintypes.HWND)
+    _SetWindowDisplayAffinity = _bind(
+        _user32, "SetWindowDisplayAffinity", wintypes.BOOL, wintypes.HWND, wintypes.DWORD
+    )
     _IsWindow = _bind(_user32, "IsWindow", wintypes.BOOL, wintypes.HWND)
     _GetWindowTextW = _bind(
         _user32, "GetWindowTextW", ctypes.c_int, wintypes.HWND, wintypes.LPWSTR, ctypes.c_int

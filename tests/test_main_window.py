@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from autoclick_pro.settings_store import SettingsStore
@@ -129,6 +130,41 @@ def test_hotkey_start_without_coordinates_does_not_block(window, dialogs):
     assert dialogs == []
     assert "Pick a position" in window.status_label.text()
     assert not window.engine.is_active()
+
+
+def test_reset_defaults_preserves_profiles(window, dialogs):
+    window.interval_spin.setValue(321)
+    window._store.profiles["Keep me"] = dict(window._collect_settings())
+    window._reset_defaults()
+    assert dialogs[-1][0] == "question"
+    assert window.interval_spin.value() == 100
+    assert window._store.profiles.keys() == {"Keep me"}
+    assert _settings_file(window)["settings"]["interval"] == 100
+
+
+def test_refined_layout_preserves_workflow(window):
+    margins = window.centralWidget().layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right()) == (24, 20, 24)
+    assert window.centralWidget().layout().spacing() == 16
+    assert window.toggle_button.minimumHeight() == 48
+    assert window.stop_button.minimumHeight() == 48
+    assert window.hotkey_note.wordWrap()
+    assert [window.tabs.tabText(i) for i in range(window.tabs.count())] == [
+        "Clicker", "Sequence", "Settings"
+    ]
+
+
+def test_minimum_size_keeps_actions_and_long_status_usable(window, qtbot):
+    window.resize(window.minimumSize())
+    window._set_status("Status: " + "A detailed status message. " * 8, "error")
+    window.show()
+    qtbot.waitExposed(window)
+    assert window.toggle_button.isVisible()
+    assert window.stop_button.isVisible()
+    scroll = window.tabs.currentWidget()
+    assert scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert not scroll.horizontalScrollBar().isVisible()
+    assert scroll.widget().width() == scroll.viewport().width()
 
 
 def test_always_on_top_keeps_window_visible(window, qtbot):
