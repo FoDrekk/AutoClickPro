@@ -12,3 +12,6 @@ release/
 *.spec.bak
 *.pfx
 *.pem
+
+.superpowers/
+
