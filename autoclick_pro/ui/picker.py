@@ -98,7 +98,7 @@ class _Overlay(QWidget):
         painter.setFont(QFont(self.font().family(), 10, QFont.Weight.DemiBold))
         painter.fillRect(QRect(box.left() + 6, box.top() + size + 10, 14, 14), QColor(*rgb))
         painter.drawText(box.left() + 26, box.top() + size + 22, f"{px}, {py}   {format_color(rgb)}")
-        painter.setFont(QFont(self.font().family(), 8))
+        painter.setFont(QFont(self.font().family(), 9))
         painter.drawText(box.left() + 6, box.top() + size + 38, "Click to pick · arrows nudge · Esc cancels")
 
     def mouseMoveEvent(self, _event: QMouseEvent) -> None:

@@ -11,13 +11,16 @@ STATUS_COLORS = {
     "idle": ("rgba(139,147,163,0.12)", "#a8b0bd"),
     "run": ("rgba(63,185,80,0.12)", "#57ab5f"),
     "pause": ("rgba(210,153,34,0.12)", "#c79a3a"),
-    "stop": ("rgba(248,81,73,0.12)", "#e05a52"),
+    "stop": ("rgba(248,81,73,0.12)", "#e8756e"),
     "done": ("rgba(88,140,255,0.12)", "#7aa5f0"),
-    "error": ("rgba(248,81,73,0.12)", "#e05a52"),
+    "error": ("rgba(248,81,73,0.12)", "#e8756e"),
+    # Purple, not red: recording is intended, red means something went wrong.
+    "record": ("rgba(187,140,255,0.12)", "#bc8cff"),
 }
 _LIGHT_STATUS_COLORS = {
     "idle": "#475569", "run": "#166534", "pause": "#854d0e",
     "stop": "#b91c1c", "done": "#1d4ed8", "error": "#b91c1c",
+    "record": "#7e22ce",
 }
 
 _DARK_QSS = """
@@ -125,6 +128,14 @@ QSlider::handle:horizontal {
 }
 QSlider::handle:horizontal:hover {
     background: #ffffff;
+}
+QSlider::handle:horizontal:focus {
+    background: #dce1ea;
+    width: 10px;
+    height: 10px;
+    border: 2px solid #58a6ff;
+    border-radius: 7px;
+    margin: -5px 0;
 }
 QPushButton#primary {
     background: #2563c9;
@@ -349,10 +360,9 @@ def set_app_theme(app: QApplication, mode: str) -> str:
 
 
 # Per-theme label colours. "system" (and any unknown mode) falls back
-# to the OS palette for text, so its ink/blue/muted/coord slots stay
-# empty; the hero box is the light one, exactly as the old else branch
-# had it. See U7 in the audit: the forced-white hero in system mode
-# is a known wart, left unchanged by this slice.
+# to the OS palette for text and hero background, so its ink/blue/muted/
+# coord/hero_bg slots stay empty and the native palette shows through.
+# This fixes U7: the hero box no longer forces white in dark system mode.
 _LABEL_STYLES = {
     "dark": {
         "ink": "#f2f4f8",
@@ -373,7 +383,7 @@ _LABEL_STYLES = {
         "blue": "",
         "muted": "",
         "coord": "",
-        "hero_bg": "background: #ffffff; border: 1px solid #d5dae2;",
+        "hero_bg": "",
     },
 }
 

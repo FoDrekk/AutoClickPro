@@ -18,6 +18,8 @@ class HotkeyEdit(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAccessibleName("Hotkey editor")
+        self.setAccessibleDescription("Pick modifier buttons and a key to form a global hotkey.")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)

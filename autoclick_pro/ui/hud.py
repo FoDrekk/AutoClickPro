@@ -17,10 +17,10 @@ _COLORS = {
     "idle": QColor("#a8b0bd"),
     "run": QColor("#57ab5f"),
     "pause": QColor("#c79a3a"),
-    "stop": QColor("#e05a52"),
+    "stop": QColor("#e8756e"),
     "done": QColor("#7aa5f0"),
-    "error": QColor("#e05a52"),
-    "record": QColor("#e05a52"),
+    "error": QColor("#e8756e"),
+    "record": QColor("#bc8cff"),
     "countdown": QColor("#f2f4f8"),
 }
 
@@ -114,10 +114,21 @@ class StatusHud(QWidget):
             self._drag_offset = None
             self._custom_pos = None
             self.setCursor(Qt.CursorShape.OpenHandCursor)
-            self._place()
+            self.snap_to_corner()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def snap_to_corner(self) -> None:
+        """Reset to the default top-right position; keyboard-safe alternative to double-click."""
+        self._custom_pos = None
+        self._place()
+
+    def nudge(self, dx: int, dy: int) -> None:
+        """Move the overlay by pixels without mouse drag; keyboard-safe alternative."""
+        base = self._custom_pos if self._custom_pos is not None else self.pos()
+        self._custom_pos = self._clamp_position(base + QPoint(dx, dy), self.width(), self.height())
+        self._place()
 
     @property
     def title(self) -> str:

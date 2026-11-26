@@ -1,8 +1,8 @@
 import json
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from autoclick_pro.settings_store import SettingsStore
 
@@ -432,6 +432,101 @@ def test_overlay_follows_state(window, qtbot):
     window._toggle_clicking()
     assert not window.hud.isVisible()
     window._emergency_stop()
+
+
+# ------------------------------------------------------------- keyboard / wheel
+
+
+def _focus(window, qtbot, widget):
+    """Give a widget focus. setFocus() is only honoured once the window is visible."""
+    window.show()
+    widget.setFocus(Qt.FocusReason.OtherFocusReason)
+    qtbot.waitUntil(widget.hasFocus)
+
+
+def test_overlay_shortcuts_nudge_and_snap_from_any_focused_control(window, qtbot):
+    window.overlay_check.setChecked(True)
+    window._toggle_clicking()
+    assert window.hud.isVisible()
+    window.hud.snap_to_corner()
+    corner = window.hud.pos()
+    ctrl = Qt.KeyboardModifier.ControlModifier
+
+    # Start button keeps focus after a click, so this is the real starting point.
+    _focus(window, qtbot, window.toggle_button)
+    qtbot.keyClick(window.toggle_button, Qt.Key.Key_Down, ctrl)
+    assert window.hud.pos() == corner + QPoint(0, 8)
+    qtbot.keyClick(window.toggle_button, Qt.Key.Key_Left, ctrl)
+    assert window.hud.pos() == corner + QPoint(-8, 8)
+    qtbot.keyClick(window.toggle_button, Qt.Key.Key_Home, ctrl)
+    assert window.hud.pos() == corner
+
+    # A spinbox must not swallow Ctrl+arrows either ...
+    _focus(window, qtbot, window.countdown_spin)
+    qtbot.keyClick(window.countdown_spin, Qt.Key.Key_Up, ctrl)
+    assert window.hud.pos() == corner + QPoint(0, -8)
+    window.hud.snap_to_corner()
+
+    # ... while plain arrows still belong to the spinbox.
+    before = window.countdown_spin.value()
+    qtbot.keyClick(window.countdown_spin, Qt.Key.Key_Up)
+    assert window.countdown_spin.value() == before + 1
+    assert window.hud.pos() == corner
+    window._emergency_stop()
+
+
+def test_overlay_shortcuts_are_off_while_the_overlay_is_hidden(window, qtbot):
+    assert not window.hud.isVisible()
+    assert not any(shortcut.isEnabled() for shortcut in window._hud_shortcuts)
+    window.overlay_check.setChecked(True)
+    window._toggle_clicking()
+    assert all(shortcut.isEnabled() for shortcut in window._hud_shortcuts)
+    window._emergency_stop()
+    assert not any(shortcut.isEnabled() for shortcut in window._hud_shortcuts)
+
+
+def _wheel(widget, step=120):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QWheelEvent
+
+    return QWheelEvent(
+        QPointF(1, 1),
+        QPointF(1, 1),
+        QPoint(0, step),
+        QPoint(0, step),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+
+
+def test_scroll_does_not_change_an_unfocused_control(window, qtbot):
+    """Scrolling a page with the cursor over a control must not edit it."""
+    cases = [
+        (0, window.interval_spin, window.interval_spin.value),
+        (0, window.interval_slider, window.interval_slider.value),
+        (2, window.countdown_spin, window.countdown_spin.value),
+        (2, window.toggle_edit._key_combo, window.toggle_edit._key_combo.currentIndex),
+        (2, window.stop_edit._key_combo, window.stop_edit._key_combo.currentIndex),
+        (1, window.sequence_editor.loops_spin, window.sequence_editor.loops_spin.value),
+        (1, window.sequence_editor.speed_combo, window.sequence_editor.speed_combo.currentIndex),
+    ]
+    for tab, widget, read in cases:
+        window.tabs.setCurrentIndex(tab)
+        _focus(window, qtbot, window.toggle_button)
+        before = read()
+        for step in (120, -120):
+            QApplication.sendEvent(widget, _wheel(widget, step))
+            assert read() == before, f"scroll changed {widget}"
+
+
+def test_scroll_still_works_on_a_focused_control(window, qtbot):
+    window.tabs.setCurrentIndex(2)
+    _focus(window, qtbot, window.countdown_spin)
+    before = window.countdown_spin.value()
+    QApplication.sendEvent(window.countdown_spin, _wheel(window.countdown_spin))
+    assert window.countdown_spin.value() == before + 1
 
 
 def test_profile_keeps_sequence_and_trigger(window, monkeypatch):

@@ -10,8 +10,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer, QUrl, Slot
-from PySide6.QtGui import QCloseEvent, QDesktopServices, QIcon, QPixmap
+from PySide6.QtCore import QEvent, QLocale, QObject, QSignalBlocker, Qt, QTimer, QUrl, Slot
+from PySide6.QtGui import (
+    QCloseEvent,
+    QDesktopServices,
+    QIcon,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -59,6 +66,21 @@ _logger = logging.getLogger("autoclick_pro")
 
 _SAVE_DELAY_MS = 400
 _CLICKER_TAB, _SEQUENCE_TAB, _SETTINGS_TAB = range(3)
+
+
+class _WheelGuard(QObject):
+    """Scroll wheel changes a control only after it gains focus (click/Tab).
+
+    Without this, scrolling the Settings tab with the cursor over a spinbox,
+    combo or slider silently changes its value. Forwarding to the parent
+    keeps the page itself scrolling.
+    """
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
+            QApplication.sendEvent(obj.parent(), event)
+            return True
+        return False
 
 
 def _is_admin() -> bool:
@@ -131,6 +153,19 @@ class MainWindow(QMainWindow):
         self.hud = StatusHud()
 
         self._build_ui()
+        # Scrolling the page must not change a control that was never focused.
+        self._wheel_guard = _WheelGuard(self)
+        for kind in (QSpinBox, QDoubleSpinBox, QComboBox, QSlider):
+            for widget in self.findChildren(kind):
+                widget.installEventFilter(self._wheel_guard)
+        self._hud_shortcuts = [
+            *(
+                self._hud_shortcut(f"Ctrl+{name}", lambda d=delta: self.hud.nudge(*d))
+                for name, delta in (("Left", (-8, 0)), ("Right", (8, 0)), ("Up", (0, -8)), ("Down", (0, 8)))
+            ),
+            self._hud_shortcut("Ctrl+Home", self.hud.snap_to_corner),
+        ]
+
         self._tray = TrayIcon(self.windowIcon(), self)
         self._apply_settings(store.settings)
         self._refresh_profiles()
@@ -297,6 +332,7 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setMaximumHeight(72)
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._set_status("Status: Stopped", "idle")
         hero_layout.addWidget(self.status_label)
         hero_row = QHBoxLayout()
@@ -510,7 +546,11 @@ class MainWindow(QMainWindow):
         self.tray_check = QCheckBox("Minimize to tray on close")
         self.tray_check.setToolTip("Closing the window minimizes to tray instead of quitting.")
         self.overlay_check = QCheckBox("Show floating status overlay")
-        self.overlay_check.setToolTip("A small always-on-top box shows state and clicks while running.")
+        self.overlay_check.setToolTip(
+            "A small always-on-top box shows state and clicks while running.\n"
+            "Drag it to move. With the main window focused: Ctrl+arrow keys nudge it, "
+            "Ctrl+Home snaps it back."
+        )
         self.countdown_spin = QSpinBox()
         self.countdown_spin.setRange(0, 10)
         self.countdown_spin.setSuffix(" s")
@@ -552,7 +592,7 @@ class MainWindow(QMainWindow):
         )
         profile_buttons = QHBoxLayout()
         profile_buttons.setSpacing(8)
-        self.profile_save_button = self._ghost_button("Save", self._save_profile)
+        self.profile_save_button = self._ghost_button("Save profile", self._save_profile)
         self.profile_delete_button = self._ghost_button("Delete", self._delete_profile)
         self.profile_import_button = self._ghost_button("Import…", self._import_profiles)
         self.profile_export_button = self._ghost_button("Export…", self._export_profiles)
@@ -585,7 +625,9 @@ class MainWindow(QMainWindow):
         updates_form.addRow("", self.update_button)
         updates_form.addRow("", self.update_open_button)
         if not self._update_source_ready:
-            self.update_label.setText("This build has no update source configured.")
+            self.update_label.setText(
+                "This build has no update source configured. Update checks stay off; the app still works."
+            )
             self.update_button.setEnabled(False)
             self.updates_check.setEnabled(False)
         else:
@@ -594,7 +636,7 @@ class MainWindow(QMainWindow):
 
     def _build_reset_card(self) -> QGroupBox:
         group, form = self._make_card("Reset")
-        note = QLabel("Restore all app settings to defaults. Saved profiles are kept.")
+        note = QLabel("Restore all app settings to defaults. The app keeps saved profiles.")
         note.setWordWrap(True)
         self.reset_button = self._ghost_button("Reset to defaults…", self._reset_defaults)
         form.addRow("", note)
@@ -762,7 +804,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _save_profile(self) -> None:
-        name, ok = QInputDialog.getText(self, "Save profile", "Profile name:")
+        name, ok = QInputDialog.getText(self, "Save profile", "Profile name:", text="")
         if not ok:
             return
         try:
@@ -774,7 +816,7 @@ class MainWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 "Overwrite profile",
-                f"Profile '{name}' exists. Overwrite?",
+                f"Profile ‘{name}’ exists. Overwrite?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -792,7 +834,7 @@ class MainWindow(QMainWindow):
         if profile is None or self._state != "idle":
             return
         self._apply_click_settings(profile)
-        self._set_status(f"Status: Loaded profile '{name}'", "idle")
+        self._set_status(f"Status: Loaded profile ‘{name}’", "idle")
 
     @Slot()
     def _delete_profile(self) -> None:
@@ -802,7 +844,7 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Delete profile",
-            f"Delete profile '{name}'?",
+            f"Delete profile ‘{name}’?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -824,7 +866,7 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
-        self._set_status(f"Status: Exported {count} profile(s)", "done")
+        self._set_status(f"Status: Exported {count} profiles", "done")
 
     @Slot()
     def _import_profiles(self) -> None:
@@ -840,7 +882,7 @@ class MainWindow(QMainWindow):
             return
         self._save_settings()
         self._refresh_profiles()
-        self._set_status(f"Status: Imported {added} new, replaced {replaced} profile(s)", "done")
+        self._set_status(f"Status: Imported {added} new, replaced {replaced} profiles", "done")
 
     # ------------------------------------------------------------ live sync
 
@@ -853,10 +895,11 @@ class MainWindow(QMainWindow):
 
     def _update_rate_label(self, *_args) -> None:
         per_second = 1000 / self.interval_spin.value()
+        locale = QLocale()
         if per_second >= 1:
-            self.rate_label.setText(f"{per_second:,.1f} clicks/s")
+            self.rate_label.setText(f"{locale.toString(per_second, 'f', 1)} clicks/s")
         else:
-            self.rate_label.setText(f"{per_second * 60:,.1f} clicks/min")
+            self.rate_label.setText(f"{locale.toString(per_second * 60, 'f', 1)} clicks/min")
 
     def _sync_jitter(self, *_args) -> None:
         self.engine.set_jitter(self.jitter_pct_spin.value(), self.jitter_px_spin.value())
@@ -1031,18 +1074,35 @@ class MainWindow(QMainWindow):
         if was_visible:
             self.show()
 
+    def _hud_shortcut(self, keys: str, slot) -> QShortcut:
+        """Application-level shortcut: focused buttons, spinboxes and combos consume
+        arrow keys before a keyPressEvent ever reaches the window, and the
+        overlay itself can be the active window, so WindowShortcut would not fire."""
+        shortcut = QShortcut(QKeySequence(keys), self)
+        shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        # _refresh_hud() turns these on only while the overlay is on screen.
+        shortcut.setEnabled(False)
+        shortcut.activated.connect(slot)
+        return shortcut
+
     def _beep(self) -> None:
         if self.sound_check.isChecked():
             QApplication.beep()
 
     # ---------------------------------------------------------------- overlay
 
+    def _set_hud_visible(self, visible: bool) -> None:
+        """Show or hide the overlay and its keyboard shortcuts together."""
+        for shortcut in self._hud_shortcuts:
+            shortcut.setEnabled(visible)
+        self.hud.setVisible(visible)
+
     def _refresh_hud(self, *_args) -> None:
         if self._state == "countdown":
-            self.hud.show()
+            self._set_hud_visible(True)
             return
         if not self.overlay_check.isChecked() or self._state == "idle":
-            self.hud.hide()
+            self._set_hud_visible(False)
             return
         titles = {"running": "Clicking", "paused": "Paused", "recording": "Recording"}
         kinds = {"running": "run", "paused": "pause", "recording": "record"}
@@ -1056,7 +1116,7 @@ class MainWindow(QMainWindow):
         else:
             detail = f"{self._last_count} clicks · {len(self._click_times)}/min"
         self.hud.set_status(titles.get(self._state, ""), detail, kinds.get(self._state, "idle"))
-        self.hud.show()
+        self._set_hud_visible(True)
 
     # -------------------------------------------------------------- countdown
 
@@ -1102,7 +1162,7 @@ class MainWindow(QMainWindow):
                 self._set_status("Status: Pick a position before using fixed coordinates", "error")
                 self._alert(
                     "Coordinates required",
-                    "Press 'Pick position…' before using fixed coordinates.",
+                    "Press ‘Pick position…’ before using fixed coordinates.",
                     "info",
                 )
                 return False
@@ -1112,7 +1172,7 @@ class MainWindow(QMainWindow):
                     self._set_status("Status: Pick the position again to choose the target window", "error")
                     self._alert(
                         "Target window required",
-                        "Background clicks need a window. Press 'Pick position…' and click inside it.",
+                        "Background clicks need a window. Press ‘Pick position…’ and click inside it.",
                         "info",
                     )
                     return False
@@ -1123,7 +1183,7 @@ class MainWindow(QMainWindow):
                 self._set_status("Status: Pick the trigger pixel first", "error")
                 self._alert(
                     "Trigger pixel required",
-                    "Press 'Pick pixel…' to choose the trigger pixel.",
+                    "Press ‘Pick pixel…’ to choose the trigger pixel.",
                     "info",
                 )
                 return False
@@ -1256,7 +1316,9 @@ class MainWindow(QMainWindow):
         cutoff = now - 60
         while self._click_times and self._click_times[0] < cutoff:
             self._click_times.popleft()
-        self.stats_label.setText(f"{len(self._click_times)}/min · session {self._session_total}")
+        stats = QLocale().toString(len(self._click_times))
+        total = QLocale().toString(self._session_total)
+        self.stats_label.setText(f"{stats}/min · session {total}")
         if self._target_clicks:
             self.progress_bar.setVisible(True)
             self.progress_bar.setMaximum(int(self._target_clicks))
@@ -1326,7 +1388,7 @@ class MainWindow(QMainWindow):
             return
         self._set_state("recording")
         toggle = parse_hotkey(self._hotkey_specs[0]).label
-        self._set_status(f"Status: Recording — press {toggle} to stop", "error")
+        self._set_status(f"Status: Recording — press {toggle} to stop", "record")
         self._record_timer.start()
         self._beep()
 

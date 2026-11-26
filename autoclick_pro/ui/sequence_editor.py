@@ -320,6 +320,16 @@ class SequenceEditor(QWidget):
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.selectionModel().selectionChanged.connect(self._update_buttons)
         layout.addWidget(self.table, 1)
+        self.empty_state = QLabel(
+            "No steps yet.\nRecord your actions or use + Click… and + Wait for color… to build the sequence."
+        )
+        self.empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_state.setWordWrap(True)
+        self.empty_state.setVisible(False)
+        self.model.rowsInserted.connect(self._update_empty_state)
+        self.model.modelReset.connect(self._update_empty_state)
+        self.model.rowsRemoved.connect(self._update_empty_state)
+        layout.addWidget(self.empty_state, 1)
 
         add_row = QHBoxLayout()
         self.add_click_button = self._button("+ Click…", self.add_click)
@@ -327,7 +337,7 @@ class SequenceEditor(QWidget):
         self.add_wait_button = self._button("+ Wait for color…", self.add_wait_color)
         self.add_wait_button.setToolTip("Pick a pixel; playback waits until it has that color.")
         self.edit_button = self._button("Edit…", self.edit_selected)
-        self.repick_button = self._button("Re-pick", self.repick_selected)
+        self.repick_button = self._button("Re-pick…", self.repick_selected)
         self.repick_button.setToolTip("Pick a new position for the selected step.")
         for button in (self.add_click_button, self.add_wait_button, self.edit_button, self.repick_button):
             add_row.addWidget(button)
@@ -337,7 +347,7 @@ class SequenceEditor(QWidget):
         self.up_button = self._button("▲ Up", lambda: self.shift_selected(-1))
         self.down_button = self._button("▼ Down", lambda: self.shift_selected(1))
         self.remove_button = self._button("Remove", self.remove_selected)
-        self.clear_button = self._button("Clear all", self.clear)
+        self.clear_button = self._button("Clear all steps", self.clear)
         for button in (self.up_button, self.down_button, self.remove_button, self.clear_button):
             order_row.addWidget(button)
         layout.addLayout(order_row)
@@ -367,6 +377,11 @@ class SequenceEditor(QWidget):
         button.setObjectName("ghost")
         button.clicked.connect(slot)
         return button
+
+    def _update_empty_state(self, *_args) -> None:
+        empty = self.model.rowCount() == 0
+        self.table.setVisible(not empty)
+        self.empty_state.setVisible(empty)
 
     # ------------------------------------------------------------ state
 
